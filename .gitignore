@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+.history/
+/tsconfig.zip
 
 # debug
 npm-debug.log*
