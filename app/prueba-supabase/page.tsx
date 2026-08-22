@@ -1,8 +1,10 @@
 import { createClient } from "@/src/lib/supabase/server";
+import { requireAuthContext } from "@/src/services/auth/authorization";
 
 export const dynamic = "force-dynamic";
 
 export default async function SupabaseTestPage() {
+  await requireAuthContext();
   const supabase = await createClient();
   const { data: categorias, error } = await supabase
     .from("categorias")

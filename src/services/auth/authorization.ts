@@ -21,6 +21,7 @@ export type AuthContext = {
   id_usuario: number;
   auth_user_id: string;
   id_perfil: number;
+  id_local: number | null;
   perfil: string;
   cedula: string;
   nombres: string;
@@ -41,7 +42,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   const { data: user, error: userError } = await admin
     .from("usuarios")
     .select(
-      "id_usuario, auth_user_id, id_perfil, cedula, nombres, apellidos, debe_cambiar_password, activo, bloqueado",
+      "id_usuario, auth_user_id, id_perfil, id_local, cedula, nombres, apellidos, debe_cambiar_password, activo, bloqueado",
     )
     .eq("auth_user_id", authData.user.id)
     .maybeSingle();
@@ -53,6 +54,15 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     !user.activo ||
     user.bloqueado
   ) {
+    if (userError) {
+      console.error("SUPABASE authorization user ERROR:", {
+        code: userError.code,
+        message: userError.message,
+        details: userError.details,
+        hint: userError.hint,
+      });
+    }
+
     await supabase.auth.signOut();
     return null;
   }
@@ -64,6 +74,15 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     .maybeSingle();
 
   if (profileError || !profile) {
+    if (profileError) {
+      console.error("SUPABASE authorization profile ERROR:", {
+        code: profileError.code,
+        message: profileError.message,
+        details: profileError.details,
+        hint: profileError.hint,
+      });
+    }
+
     return null;
   }
 
@@ -73,6 +92,13 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     .eq("id_perfil", user.id_perfil);
 
   if (permissionsError) {
+    console.error("SUPABASE authorization permissions ERROR:", {
+      code: permissionsError.code,
+      message: permissionsError.message,
+      details: permissionsError.details,
+      hint: permissionsError.hint,
+    });
+
     return null;
   }
 
@@ -85,6 +111,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     id_usuario: user.id_usuario,
     auth_user_id: user.auth_user_id,
     id_perfil: user.id_perfil,
+    id_local: user.id_local,
     perfil: profile.nombre,
     cedula: user.cedula,
     nombres: user.nombres,

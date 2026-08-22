@@ -1,112 +1,117 @@
 "use client";
 
+import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useState } from "react";
+
+import { Alert, Button, Input, Spinner } from "@/src/components/ui";
 
 import { loginAction, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
 
 export default function LoginPage() {
-  const [state, formAction, isPending] = useActionState(
-    loginAction,
-    initialState,
-  );
+  const [state, formAction, isPending] = useActionState(loginAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <main className="min-h-screen bg-[#eee5d7] px-5 py-8 text-[#17283b] sm:px-8 sm:py-12">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-5xl overflow-hidden rounded-[2rem] bg-[#f9f7f2] shadow-2xl shadow-[#17283b]/10 lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="relative hidden overflow-hidden bg-[#17283b] p-12 text-[#f9f7f2] lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border-[3rem] border-[#c56b4d]/80" />
-          <div className="relative">
-            <p className="text-sm uppercase tracking-[0.3em] text-[#e4b79f]">
-              L&amp;F Home Decor
+    <main className="grid min-h-screen place-items-center bg-lf-beige px-4 py-6 sm:px-6 lg:px-8">
+      <div className="grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/60 bg-lf-surface shadow-[var(--lf-shadow-lg)] lg:min-h-[42rem] lg:grid-cols-[1.08fr_0.92fr]">
+        <section className="relative hidden overflow-hidden lg:block">
+          <Image
+            src="/logo/lf-home-decor.png"
+            alt="L&F Home Decor, confort y elegancia para tu hogar"
+            fill
+            priority
+            sizes="(min-width: 1024px) 55vw, 0px"
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-lf-navy/45 via-transparent to-white/5" />
+          <div className="absolute inset-x-0 bottom-0 p-10 text-white">
+            <p className="max-w-md text-sm leading-6 text-white/90">
+              Gestiona productos, inventario y ventas con claridad y el cuidado
+              que define a L&amp;F Home Decor.
             </p>
-            <h1 className="mt-20 max-w-sm text-5xl font-semibold leading-[1.05]">
-              Espacios que cuentan tu historia.
-            </h1>
           </div>
-          <p className="relative max-w-xs text-sm leading-6 text-[#d6dce1]">
-            Gestiona tu operación con claridad, cuidado y el estilo que define
-            a L&amp;F.
-          </p>
         </section>
 
-        <section className="flex items-center px-6 py-12 sm:px-14">
+        <section className="flex items-center px-6 py-10 sm:px-12 sm:py-14 lg:px-14">
           <div className="mx-auto w-full max-w-md">
-            <div className="mb-12 lg:hidden">
-              <p className="text-sm uppercase tracking-[0.25em] text-[#c56b4d]">
+            <div className="mb-9 lg:hidden">
+              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-lf-terracotta">
                 L&amp;F Home Decor
               </p>
             </div>
-            <div className="mb-9 space-y-3">
-              <p className="text-sm font-medium uppercase tracking-[0.2em] text-[#c56b4d]">
+
+            <header className="mb-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lf-terracotta">
                 Bienvenido
               </p>
-              <h2 className="text-4xl font-semibold tracking-tight">
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
                 Iniciar sesión
-              </h2>
-              <p className="text-[#657181]">
-                Ingresa con tu número de cédula.
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-lf-muted">
+                Ingresa tu cédula y contraseña para acceder al sistema.
               </p>
-            </div>
+            </header>
 
-            <form action={formAction} className="space-y-5">
-              <label className="block space-y-2 text-sm font-medium">
-                <span>Usuario (cédula)</span>
-                <input
-                  name="cedula"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="username"
-                  maxLength={10}
-                  required
-                  className="h-12 w-full rounded-xl border border-[#d7d1c8] bg-white px-4 outline-none transition focus:border-[#c56b4d] focus:ring-2 focus:ring-[#c56b4d]/20"
-                />
-              </label>
+            <form action={formAction} className="space-y-5" noValidate>
+              <Input
+                id="cedula"
+                name="cedula"
+                label="Usuario (cédula)"
+                type="text"
+                inputMode="numeric"
+                autoComplete="username"
+                enterKeyHint="next"
+                minLength={10}
+                maxLength={10}
+                pattern="[0-9]{10}"
+                placeholder="Ej. 1712345678"
+                required
+                disabled={isPending}
+              />
 
-              <label className="block space-y-2 text-sm font-medium">
-                <span>Contraseña</span>
-                <span className="flex h-12 rounded-xl border border-[#d7d1c8] bg-white focus-within:border-[#c56b4d] focus-within:ring-2 focus-within:ring-[#c56b4d]/20">
-                  <input
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    required
-                    className="min-w-0 flex-1 rounded-xl bg-transparent px-4 outline-none"
-                  />
+              <Input
+                id="password"
+                name="password"
+                label="Contraseña"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                enterKeyHint="go"
+                required
+                disabled={isPending}
+                endAdornment={
                   <button
                     type="button"
                     onClick={() => setShowPassword((visible) => !visible)}
-                    className="px-4 text-xs font-semibold text-[#657181] hover:text-[#17283b]"
+                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    aria-pressed={showPassword}
+                    className="grid size-8 place-items-center rounded-lg text-lf-muted transition hover:bg-lf-surface-muted hover:text-lf-navy"
                   >
-                    {showPassword ? "Ocultar" : "Mostrar"}
+                    {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
                   </button>
-                </span>
-              </label>
+                }
+              />
 
-              {state.error ? (
-                <p role="alert" className="rounded-lg bg-[#f9e2da] px-4 py-3 text-sm text-[#8f3f2c]">
-                  {state.error}
-                </p>
-              ) : null}
+              {state.error ? <Alert variant="danger">{state.error}</Alert> : null}
 
-              <button
-                type="submit"
-                disabled={isPending}
-                className="h-12 w-full rounded-xl bg-[#c56b4d] px-5 font-semibold text-white transition hover:bg-[#ad573d] disabled:cursor-wait disabled:opacity-60"
-              >
-                {isPending ? "Ingresando..." : "Ingresar"}
-              </button>
+              <Button type="submit" size="lg" disabled={isPending} className="w-full">
+                {isPending ? <Spinner label="Ingresando..." /> : <><span>Ingresar</span><ArrowRight size={18} aria-hidden="true" /></>}
+              </Button>
             </form>
 
             <Link
               href="/recuperar-password"
-              className="mt-6 block text-center text-sm font-medium text-[#657181] underline decoration-[#c56b4d]/50 underline-offset-4 hover:text-[#c56b4d]"
+              className="mt-6 block text-center text-sm font-medium text-lf-muted underline decoration-lf-terracotta/50 underline-offset-4 transition hover:text-lf-terracotta"
             >
               ¿Olvidó su contraseña?
             </Link>
+
+            <p className="mt-8 text-center text-xs leading-5 text-lf-muted">
+              Acceso exclusivo para personal autorizado.
+            </p>
           </div>
         </section>
       </div>

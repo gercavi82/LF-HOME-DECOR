@@ -1,70 +1,103 @@
 "use client";
 
-import { useActionState } from "react";
+import { Check, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
+import { useActionState, useState } from "react";
 
-import {
-  changePasswordAction,
-  type ChangePasswordState,
-} from "./actions";
+import { Alert, Button, Card, CardContent, Input, Spinner } from "@/src/components/ui";
+
+import { changePasswordAction, type ChangePasswordState } from "./actions";
 
 const initialState: ChangePasswordState = {};
 
 export default function ChangePasswordPage() {
-  const [state, formAction, isPending] = useActionState(
-    changePasswordAction,
-    initialState,
+  const [state, formAction, isPending] = useActionState(changePasswordAction, initialState);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const visibilityButton = (
+    <button
+      type="button"
+      onClick={() => setShowPassword((visible) => !visible)}
+      aria-label={showPassword ? "Ocultar contraseñas" : "Mostrar contraseñas"}
+      aria-pressed={showPassword}
+      className="grid size-8 place-items-center rounded-lg text-lf-muted transition hover:bg-lf-surface-muted hover:text-lf-navy"
+    >
+      {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+    </button>
   );
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#eee5d7] px-5 py-12 text-[#17283b]">
-      <section className="w-full max-w-md rounded-3xl bg-[#f9f7f2] p-7 shadow-xl shadow-[#17283b]/10 sm:p-10">
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-[#c56b4d]">
-          L&amp;F Home Decor
-        </p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-          Actualiza tu contraseña
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-[#657181]">
-          Por seguridad, debes definir una nueva contraseña antes de continuar.
-        </p>
+    <main className="grid min-h-screen place-items-center bg-lf-beige px-4 py-8 sm:px-6">
+      <div className="w-full max-w-5xl">
+        <div className="mb-5 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-lf-terracotta">L&amp;F Home Decor</p>
+        </div>
 
-        <form action={formAction} className="mt-8 space-y-5">
-          <label className="block space-y-2 text-sm font-medium">
-            <span>Nueva contraseña</span>
-            <input
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              className="h-12 w-full rounded-xl border border-[#d7d1c8] bg-white px-4 outline-none focus:border-[#c56b4d] focus:ring-2 focus:ring-[#c56b4d]/20"
-            />
-          </label>
-          <label className="block space-y-2 text-sm font-medium">
-            <span>Confirmar contraseña</span>
-            <input
-              name="confirmation"
-              type="password"
-              autoComplete="new-password"
-              required
-              className="h-12 w-full rounded-xl border border-[#d7d1c8] bg-white px-4 outline-none focus:border-[#c56b4d] focus:ring-2 focus:ring-[#c56b4d]/20"
-            />
-          </label>
+        <Card className="grid overflow-hidden rounded-[2rem] border-white/70 shadow-[var(--lf-shadow-lg)] lg:grid-cols-[0.82fr_1.18fr]">
+          <section className="hidden bg-lf-navy p-10 text-white lg:flex lg:flex-col lg:justify-between">
+            <div className="grid size-14 place-items-center rounded-2xl bg-lf-terracotta">
+              <ShieldCheck size={28} aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-semibold leading-tight">Protege tu acceso</h2>
+              <p className="mt-4 text-sm leading-6 text-white/70">
+                La contraseña temporal debe reemplazarse antes de utilizar los módulos del sistema.
+              </p>
+            </div>
+          </section>
 
-          {state.error ? (
-            <p role="alert" className="rounded-lg bg-[#f9e2da] px-4 py-3 text-sm text-[#8f3f2c]">
-              {state.error}
-            </p>
-          ) : null}
+          <CardContent className="p-6 pt-6 sm:p-10 lg:p-12">
+            <header>
+              <div className="grid size-12 place-items-center rounded-2xl bg-[var(--lf-info-soft)] text-lf-info lg:hidden">
+                <KeyRound size={24} aria-hidden="true" />
+              </div>
+              <h1 className="mt-5 text-3xl font-semibold tracking-tight">Actualiza tu contraseña</h1>
+              <p className="mt-3 text-sm leading-6 text-lf-muted">
+                Define una contraseña personal antes de continuar al sistema.
+              </p>
+            </header>
 
-          <button
-            type="submit"
-            disabled={isPending}
-            className="h-12 w-full rounded-xl bg-[#c56b4d] px-5 font-semibold text-white transition hover:bg-[#ad573d] disabled:cursor-wait disabled:opacity-60"
-          >
-            {isPending ? "Actualizando..." : "Guardar contraseña"}
-          </button>
-        </form>
-      </section>
+            <div className="mt-6 rounded-2xl bg-lf-surface-muted p-4">
+              <p className="text-sm font-semibold">La nueva contraseña debe:</p>
+              <ul className="mt-3 space-y-2 text-sm text-lf-muted">
+                <li className="flex items-center gap-2"><Check size={16} className="text-lf-success" aria-hidden="true" /> Tener al menos 8 caracteres.</li>
+                <li className="flex items-center gap-2"><Check size={16} className="text-lf-success" aria-hidden="true" /> Ser diferente de tu cédula.</li>
+                <li className="flex items-center gap-2"><Check size={16} className="text-lf-success" aria-hidden="true" /> Coincidir en ambos campos.</li>
+              </ul>
+            </div>
+
+            <form action={formAction} className="mt-7 space-y-5" noValidate>
+              <Input
+                id="new-password"
+                name="password"
+                label="Nueva contraseña"
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                minLength={8}
+                required
+                disabled={isPending}
+                endAdornment={visibilityButton}
+              />
+              <Input
+                id="password-confirmation"
+                name="confirmation"
+                label="Confirmar contraseña"
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                minLength={8}
+                required
+                disabled={isPending}
+                endAdornment={visibilityButton}
+              />
+
+              {state.error ? <Alert variant="danger">{state.error}</Alert> : null}
+
+              <Button type="submit" size="lg" disabled={isPending} className="w-full">
+                {isPending ? <Spinner label="Actualizando..." /> : "Guardar contraseña"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </main>
   );
 }
