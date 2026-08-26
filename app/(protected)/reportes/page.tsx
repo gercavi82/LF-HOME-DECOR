@@ -6,6 +6,7 @@ import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead }
 import { getFinancialReport } from "@/src/services/reports/reports";
 import { listCommissionPayments } from "@/src/services/commissions/commissions";
 import { CommissionPaymentModal } from "@/src/components/commissions/payment-modal";
+import { InteractiveReportsCharts } from "@/src/components/reports/interactive-charts";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
 const dateFormatter = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" });
@@ -50,12 +51,51 @@ export default async function ReportsPage({
     saldo_pendiente: Math.max(0, a.comision_asesor - a.comision_pagada),
   }));
 
+  // Totales calculados por tabla individual
+  const sumMonthlyUnidades = data.monthlyBreakdown.reduce((sum, m) => sum + m.unidades, 0);
+  const sumMonthlyVentas = data.monthlyBreakdown.reduce((sum, m) => sum + m.total_ventas, 0);
+  const sumMonthlyCostos = data.monthlyBreakdown.reduce((sum, m) => sum + m.total_costo, 0);
+  const sumMonthlyUtilidad = data.monthlyBreakdown.reduce((sum, m) => sum + m.utilidad, 0);
+  const sumMonthlyComisionAsesores = data.monthlyBreakdown.reduce((sum, m) => sum + m.comision_asesores, 0);
+  const sumMonthlyComisionLocal = data.monthlyBreakdown.reduce((sum, m) => sum + m.comision_local, 0);
+
+  const sumTypeUnidades = data.typeBreakdown.reduce((sum, t) => sum + t.unidades, 0);
+  const sumTypeVentas = data.typeBreakdown.reduce((sum, t) => sum + t.total_ventas, 0);
+  const sumTypeCostos = data.typeBreakdown.reduce((sum, t) => sum + t.total_costo, 0);
+  const sumTypeUtilidad = data.typeBreakdown.reduce((sum, t) => sum + t.utilidad, 0);
+
+  const sumAdvisorVentas = data.advisors.reduce((sum, a) => sum + a.total_ventas, 0);
+  const sumAdvisorUtilidad = data.advisors.reduce((sum, a) => sum + a.total_utilidad, 0);
+  const sumAdvisorComision = data.advisors.reduce((sum, a) => sum + a.comision_asesor, 0);
+  const sumAdvisorPagado = data.advisors.reduce((sum, a) => sum + a.comision_pagada, 0);
+  const sumAdvisorPendiente = data.advisors.reduce((sum, a) => sum + Math.max(0, a.comision_asesor - a.comision_pagada), 0);
+
+  // Datos para los gráficos interactivos
+  const chartMonthlyData = data.monthlyBreakdown.map((m) => ({
+    year_month: m.year_month,
+    label: m.label,
+    total_ventas: m.total_ventas,
+    total_compras: m.total_compras || 0,
+    utilidad: m.utilidad,
+    comision_asesores: m.comision_asesores,
+  }));
+
+  const chartAdvisorData = data.advisors.map((a) => ({
+    id_usuario: a.id_usuario,
+    asesor: a.asesor,
+    total_ventas: a.total_ventas,
+    total_utilidad: a.total_utilidad,
+    comision_asesor: a.comision_asesor,
+    comision_pagada: a.comision_pagada,
+    saldo_pendiente: Math.max(0, a.comision_asesor - a.comision_pagada),
+  }));
+
   return (
     <ContentContainer>
       <PageHeader
         eyebrow="Consolidado financiero"
         title="Reportes y comisiones"
-        description="Estado de resultados, desglose por meses/años, tipos de productos y abonos parciales de comisiones."
+        description="Estado de resultados, gráficos interactivos, desglose por meses/años, tipos de productos y liquidación por asesor."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <CommissionPaymentModal advisors={advisorOptions} />
@@ -185,6 +225,12 @@ export default async function ReportsPage({
         </Card>
       </div>
 
+      {/* SECCIÓN DE GRÁFICOS INTERACTIVOS */}
+      <InteractiveReportsCharts
+        monthlyData={chartMonthlyData}
+        advisorData={chartAdvisorData}
+      />
+
       {/* SECCIÓN 1: VENTAS POR MES Y AÑO */}
       <div className="mb-8 space-y-3">
         <div className="flex items-center justify-between">
@@ -225,12 +271,12 @@ export default async function ReportsPage({
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
                 <TableCell>TOTAL PERÍODOS</TableCell>
-                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.totalVentas)}</TableCell>
-                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
-                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
-                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesLocal)}</TableCell>
+                <TableCell className="text-center">{sumMonthlyUnidades}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(sumMonthlyVentas)}</TableCell>
+                <TableCell className="text-right text-lf-muted">{currency.format(sumMonthlyCostos)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(sumMonthlyUtilidad)}</TableCell>
+                <TableCell className="text-right text-emerald-700">{currency.format(sumMonthlyComisionAsesores)}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(sumMonthlyComisionLocal)}</TableCell>
               </tr>
             </tfoot>
           </Table>
@@ -281,10 +327,10 @@ export default async function ReportsPage({
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
                 <TableCell colSpan={2}>TOTAL PRODUCTOS</TableCell>
-                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.totalVentas)}</TableCell>
-                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
-                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
+                <TableCell className="text-center">{sumTypeUnidades}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(sumTypeVentas)}</TableCell>
+                <TableCell className="text-right text-lf-muted">{currency.format(sumTypeCostos)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(sumTypeUtilidad)}</TableCell>
                 <TableCell className="text-center">—</TableCell>
               </tr>
             </tfoot>
@@ -304,11 +350,11 @@ export default async function ReportsPage({
           <div className="flex items-center gap-3">
             <div className="rounded-xl border bg-emerald-50 px-3 py-1.5 text-xs">
               <span className="font-semibold text-emerald-800">Total Pagado: </span>
-              <strong>{currency.format(data.kpis.comisionesPagadas)}</strong>
+              <strong>{currency.format(sumAdvisorPagado)}</strong>
             </div>
             <div className="rounded-xl border bg-amber-50 px-3 py-1.5 text-xs">
               <span className="font-semibold text-amber-800">Saldo Pendiente: </span>
-              <strong>{currency.format(data.kpis.comisionesPendientes)}</strong>
+              <strong>{currency.format(sumAdvisorPendiente)}</strong>
             </div>
           </div>
         </div>
@@ -356,11 +402,11 @@ export default async function ReportsPage({
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
                 <TableCell>TOTAL CONSOLIDADO</TableCell>
-                <TableCell className="text-right">{currency.format(data.kpis.totalVentas)}</TableCell>
-                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
-                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesPagadas)}</TableCell>
-                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.comisionesPendientes)}</TableCell>
+                <TableCell className="text-right">{currency.format(sumAdvisorVentas)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(sumAdvisorUtilidad)}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(sumAdvisorComision)}</TableCell>
+                <TableCell className="text-right text-emerald-700">{currency.format(sumAdvisorPagado)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(sumAdvisorPendiente)}</TableCell>
                 <TableCell colSpan={2}>—</TableCell>
               </tr>
             </tfoot>

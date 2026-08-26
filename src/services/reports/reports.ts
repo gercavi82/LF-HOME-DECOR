@@ -10,6 +10,7 @@ export type MonthlySalesBreakdown = {
   unidades: number;
   total_ventas: number;
   total_costo: number;
+  total_compras: number;
   utilidad: number;
   comision_asesores: number;
   comision_local: number;
@@ -126,25 +127,44 @@ export async function getFinancialReport(filters?: {
 
     const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-    // 4. Desglose Mensual
-    const monthlyRows = await query<{
-      year_month: string;
-      unidades: number;
-      total_ventas: number;
-    }>(
-      `SELECT 
-         DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
-         COALESCE(SUM(d.cantidad), 0) AS unidades,
-         COALESCE(SUM(d.total), 0) AS total_ventas
-       FROM ventas v
-       JOIN detalle_ventas d ON d.id_venta = v.id_venta
-       JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-       JOIN productos prod ON prod.id_producto = vp.id_producto
-       ${whereSql}
-       GROUP BY year_month
-       ORDER BY year_month ASC`,
-      params
-    ).catch(() => []);
+    // 4. Desglose Mensual de Ventas y Compras
+    const [monthlyRows, monthlyPurchaseRows] = await Promise.all([
+      query<{
+        year_month: string;
+        unidades: number;
+        total_ventas: number;
+      }>(
+        `SELECT 
+           DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
+           COALESCE(SUM(d.cantidad), 0) AS unidades,
+           COALESCE(SUM(d.total), 0) AS total_ventas
+         FROM ventas v
+         JOIN detalle_ventas d ON d.id_venta = v.id_venta
+         JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+         JOIN productos prod ON prod.id_producto = vp.id_producto
+         ${whereSql}
+         GROUP BY DATE_FORMAT(v.fecha, '%Y-%m')
+         ORDER BY DATE_FORMAT(v.fecha, '%Y-%m') ASC`,
+        params
+      ).catch(() => []),
+      query<{
+        year_month: string;
+        total_compras: number;
+      }>(
+        `SELECT 
+           DATE_FORMAT(c.fecha, '%Y-%m') AS year_month,
+           COALESCE(SUM(c.total), 0) AS total_compras
+         FROM compras c
+         WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+         GROUP BY DATE_FORMAT(c.fecha, '%Y-%m')
+         ORDER BY DATE_FORMAT(c.fecha, '%Y-%m') ASC`
+      ).catch(() => []),
+    ]);
+
+    const purchaseMap = new Map<string, number>();
+    (monthlyPurchaseRows ?? []).forEach((r) => {
+      purchaseMap.set(String(r.year_month), Number(r.total_compras) || 0);
+    });
 
     const monthlyBreakdown: MonthlySalesBreakdown[] = (monthlyRows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
@@ -153,6 +173,7 @@ export async function getFinancialReport(filters?: {
       const ym = String(r.year_month || "2026-06");
       const [y, m] = ym.split("-");
       const label = `${MONTH_NAMES[m] || m} ${y || "2026"}`;
+      const totalCompras = purchaseMap.get(ym) || 0;
 
       return {
         year_month: ym,
@@ -160,6 +181,7 @@ export async function getFinancialReport(filters?: {
         unidades: Number(r.unidades) || 0,
         total_ventas: ventas,
         total_costo: costo,
+        total_compras: totalCompras,
         utilidad,
         comision_asesores: Number((utilidad * 0.60).toFixed(2)),
         comision_local: Number((utilidad * 0.40).toFixed(2)),
@@ -314,12 +336,29 @@ export async function getFinancialReport(filters?: {
       expenses: [],
     }));
 
-    const totalVentas = monthlyBreakdown.reduce((sum, m) => sum + m.total_ventas, 0);
-    const totalCostos = monthlyBreakdown.reduce((sum, m) => sum + m.total_costo, 0);
-    const utilidadBruta = monthlyBreakdown.reduce((sum, m) => sum + m.utilidad, 0);
-    const totalUnidades = monthlyBreakdown.reduce((sum, m) => sum + m.unidades, 0);
-    const comisionesAsesores = monthlyBreakdown.reduce((sum, m) => sum + m.comision_asesores, 0);
-    const comisionesLocal = monthlyBreakdown.reduce((sum, m) => sum + m.comision_local, 0);
+    // Calcular KPIs priorizando la fuente con datos
+    const totalVentas =
+      monthlyBreakdown.reduce((sum, m) => sum + m.total_ventas, 0) ||
+      typeBreakdown.reduce((sum, t) => sum + t.total_ventas, 0) ||
+      advisors.reduce((sum, a) => sum + a.total_ventas, 0);
+
+    const totalCostos =
+      monthlyBreakdown.reduce((sum, m) => sum + m.total_costo, 0) ||
+      typeBreakdown.reduce((sum, t) => sum + t.total_costo, 0) ||
+      advisors.reduce((sum, a) => sum + a.total_costo, 0);
+
+    const utilidadBruta =
+      monthlyBreakdown.reduce((sum, m) => sum + m.utilidad, 0) ||
+      typeBreakdown.reduce((sum, t) => sum + t.utilidad, 0) ||
+      advisors.reduce((sum, a) => sum + a.total_utilidad, 0);
+
+    const totalUnidades =
+      monthlyBreakdown.reduce((sum, m) => sum + m.unidades, 0) ||
+      typeBreakdown.reduce((sum, t) => sum + t.unidades, 0) ||
+      advisors.reduce((sum, a) => sum + a.unidades_vendidas, 0);
+
+    const comisionesAsesores = Number((utilidadBruta * 0.60).toFixed(2));
+    const comisionesLocal = Number((utilidadBruta * 0.40).toFixed(2));
     const totalGastos = expSummary?.total || 0;
     const utilidadNetaReal = utilidadBruta - totalGastos;
 
