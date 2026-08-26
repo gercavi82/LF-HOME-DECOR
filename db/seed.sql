@@ -32,7 +32,12 @@ INSERT INTO `permisos` (`codigo`, `nombre`, `descripcion`, `activo`) VALUES
 ('AUDITORIA_VER', 'Ver Auditoría', 'Permite consultar el registro histórico de actividades', 1),
 ('CONFIGURACION_VER', 'Ver Configuración', 'Permite consultar y modificar catálogos y parámetros', 1),
 ('FINANZAS_VER', 'Ver Finanzas', 'Permite consultar reportes financieros y estados de cuenta', 1),
-('REPORTES_VER', 'Ver Reportes', 'Permite consultar reportes consolidados del sistema', 1)
+('REPORTES_VER', 'Ver Reportes', 'Permite consultar reportes consolidados del sistema', 1),
+('GASTOS_VER', 'Ver Gastos', 'Permite consultar el registro de gastos del negocio', 1),
+('GASTOS_CREAR', 'Registrar Gastos', 'Permite registrar nuevos gastos y costos', 1),
+('GASTOS_EDITAR', 'Editar Gastos', 'Permite modificar o anular gastos', 1),
+('COMISIONES_VER', 'Ver Comisiones', 'Permite consultar comisiones y participaciones de asesores', 1),
+('COMISIONES_PAGAR', 'Liquidar Comisiones', 'Permite registrar pagos y liquidaciones de comisiones', 1)
 ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `descripcion` = VALUES(`descripcion`), `activo` = 1;
 
 -- ------------------------------------------------------------------------------

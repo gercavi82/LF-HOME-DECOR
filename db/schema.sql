@@ -387,9 +387,28 @@ CREATE TABLE `auditoria` (
   `registro_id` BIGINT NULL,
   `valor_anterior` JSON NULL,
   `valor_nuevo` JSON NULL,
-  `fecha` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX `idx_auditoria_tabla_registro` (`tabla_afectada`, `registro_id`),
-  INDEX `idx_auditoria_fecha` (`fecha`)
+-- ------------------------------------------------------------------------------
+-- 7. GASTOS Y COSTOS DEL NEGOCIO
+-- ------------------------------------------------------------------------------
+
+DROP TABLE IF EXISTS `gastos`;
+
+CREATE TABLE `gastos` (
+  `id_gasto` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `fecha` DATE NOT NULL,
+  `categoria` VARCHAR(50) NOT NULL, -- 'FIJO', 'VARIABLE', 'MARKETING', 'OPERATIVO', 'MEJORAS'
+  `descripcion` VARCHAR(255) NOT NULL,
+  `monto` DECIMAL(12,2) NOT NULL,
+  `id_local` INT NULL,
+  `id_usuario` BIGINT NULL,
+  `beneficiario` VARCHAR(150) NULL,
+  `observaciones` TEXT NULL,
+  `activo` TINYINT(1) NOT NULL DEFAULT 1,
+  `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_gastos_local` FOREIGN KEY (`id_local`) REFERENCES `locales` (`id_local`) ON DELETE SET NULL,
+  CONSTRAINT `fk_gastos_usuario` FOREIGN KEY (`id_usuario`) REFERENCES `usuarios` (`id_usuario`) ON DELETE SET NULL,
+  INDEX `idx_gastos_fecha` (`fecha`),
+  INDEX `idx_gastos_categoria` (`categoria`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
