@@ -147,7 +147,11 @@ export async function requireAuthContext(): Promise<AuthContext> {
 export async function requirePermission(permissionCode: string): Promise<AuthContext> {
   const context = await requireAuth();
 
-  if (context.id_perfil === 1 || context.perfil === ROLE_NAMES.ADMINISTRADOR) {
+  if (
+    context.id_perfil === 1 ||
+    context.perfil?.toLowerCase().includes("admin") ||
+    context.perfil === ROLE_NAMES.ADMINISTRADOR
+  ) {
     return context;
   }
 
@@ -168,7 +172,11 @@ export async function requirePermission(permissionCode: string): Promise<AuthCon
 export async function requireAnyPermission(permissionCodes: string[]): Promise<AuthContext> {
   const context = await requireAuth();
 
-  if (context.id_perfil === 1 || context.perfil === ROLE_NAMES.ADMINISTRADOR) {
+  if (
+    context.id_perfil === 1 ||
+    context.perfil?.toLowerCase().includes("admin") ||
+    context.perfil === ROLE_NAMES.ADMINISTRADOR
+  ) {
     return context;
   }
 

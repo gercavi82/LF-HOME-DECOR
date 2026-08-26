@@ -70,6 +70,23 @@ CREATE TABLE IF NOT EXISTS `gastos` (
   INDEX `idx_gastos_categoria` (`categoria`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 5. ASEGURAR TABLA PAGOS DE COMISIONES (ABONOS)
+CREATE TABLE IF NOT EXISTS `pagos_comisiones` (
+  `id_pago_comision` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `id_usuario` BIGINT NOT NULL,
+  `fecha` DATE NOT NULL,
+  `monto` DECIMAL(12,2) NOT NULL,
+  `forma_pago` VARCHAR(50) NOT NULL DEFAULT 'Transferencia',
+  `referencia` VARCHAR(100) NULL,
+  `observaciones` TEXT NULL,
+  `registrado_por` BIGINT NULL,
+  `activo` TINYINT(1) NOT NULL DEFAULT 1,
+  `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_pagos_comisiones_usuario` FOREIGN KEY (`id_usuario`) REFERENCES `usuarios` (`id_usuario`),
+  CONSTRAINT `fk_pagos_comisiones_registrador` FOREIGN KEY (`registrado_por`) REFERENCES `usuarios` (`id_usuario`),
+  INDEX `idx_pagos_comisiones_fecha` (`fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 5. ASEGURAR LOCAL Y BODEGA MATRIZ
 INSERT INTO `locales` (`id_local`, `codigo`, `nombre`, `direccion`, `telefono`, `activo`) VALUES
 (1, 'MATRIZ', 'Local Matriz', 'Av. Principal #100', '0999999999', 1)
@@ -81,22 +98,22 @@ ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `activo` = 1;
 
 -- 6. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(4, '1712345673', 'Iralda', 'Manosalvas', 'iralda.manosalvas@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(4, '1712345673', 'Iralda', 'Manosalvas', 'iralda.manosalvas@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
+(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$Zz9AVtjxfEYYrRkfLzOGXOSoCQheTPxDTyilhZoCuIngidubd/vVy', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 
 -- 7. INSERTAR PRODUCTOS Y VARIANTES REALES
@@ -1113,5 +1130,11 @@ INSERT INTO `detalle_ventas` (`id_venta`, `id_variante`, `cantidad`, `precio_uni
 (105, 2, 1, 30.00, 0.00, 15.00, 26.09, 3.91, 30.00);
 INSERT INTO `pagos_venta` (`id_venta`, `id_forma_pago`, `valor`, `referencia`, `fecha`) VALUES
 (105, 1, 30.00, 'Efectivo', '2026-08-26 12:00:00');
+
+-- 13. INSERTAR ABONOS Y PAGOS DE COMISIONES REALES
+DELETE FROM `pagos_comisiones`;
+INSERT INTO `pagos_comisiones` (`id_usuario`, `fecha`, `monto`, `forma_pago`, `referencia`, `observaciones`, `registrado_por`, `activo`) VALUES
+(2, '2026-06-30', 177.60, 'Transferencia', 'Transf #00129', 'Liquidación completa comisiones Junio - Aida Álvarez', 1, 1),
+(5, '2026-07-15', 62.50, 'Transferencia', 'Transf #00184', 'Abono parcial comisiones - Lizeth Quishpe', 1, 1);
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -232,6 +232,23 @@ CREATE TABLE IF NOT EXISTS \`gastos\` (
   INDEX \`idx_gastos_categoria\` (\`categoria\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 5. ASEGURAR TABLA PAGOS DE COMISIONES (ABONOS)
+CREATE TABLE IF NOT EXISTS \`pagos_comisiones\` (
+  \`id_pago_comision\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  \`id_usuario\` BIGINT NOT NULL,
+  \`fecha\` DATE NOT NULL,
+  \`monto\` DECIMAL(12,2) NOT NULL,
+  \`forma_pago\` VARCHAR(50) NOT NULL DEFAULT 'Transferencia',
+  \`referencia\` VARCHAR(100) NULL,
+  \`observaciones\` TEXT NULL,
+  \`registrado_por\` BIGINT NULL,
+  \`activo\` TINYINT(1) NOT NULL DEFAULT 1,
+  \`fecha_creacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT \`fk_pagos_comisiones_usuario\` FOREIGN KEY (\`id_usuario\`) REFERENCES \`usuarios\` (\`id_usuario\`),
+  CONSTRAINT \`fk_pagos_comisiones_registrador\` FOREIGN KEY (\`registrado_por\`) REFERENCES \`usuarios\` (\`id_usuario\`),
+  INDEX \`idx_pagos_comisiones_fecha\` (\`fecha\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 5. ASEGURAR LOCAL Y BODEGA MATRIZ
 INSERT INTO \`locales\` (\`id_local\`, \`codigo\`, \`nombre\`, \`direccion\`, \`telefono\`, \`activo\`) VALUES
 (1, 'MATRIZ', 'Local Matriz', 'Av. Principal #100', '0999999999', 1)
@@ -397,6 +414,14 @@ salesList.forEach((s, idx) => {
   sql += `INSERT INTO \`pagos_venta\` (\`id_venta\`, \`id_forma_pago\`, \`valor\`, \`referencia\`, \`fecha\`) VALUES
 (${saleId}, 1, ${s.ventaTotal.toFixed(2)}, 'Efectivo', '${s.fecha} 12:00:00');\n`;
 });
+
+// 13. Insertar Abonos y Pagos Iniciales de Comisiones
+sql += `\n-- 13. INSERTAR ABONOS Y PAGOS DE COMISIONES REALES
+DELETE FROM \`pagos_comisiones\`;
+INSERT INTO \`pagos_comisiones\` (\`id_usuario\`, \`fecha\`, \`monto\`, \`forma_pago\`, \`referencia\`, \`observaciones\`, \`registrado_por\`, \`activo\`) VALUES
+(2, '2026-06-30', 177.60, 'Transferencia', 'Transf #00129', 'Liquidación completa comisiones Junio - Aida Álvarez', 1, 1),
+(5, '2026-07-15', 62.50, 'Transferencia', 'Transf #00184', 'Abono parcial comisiones - Lizeth Quishpe', 1, 1);
+`;
 
 sql += `\nSET FOREIGN_KEY_CHECKS = 1;\n`;
 

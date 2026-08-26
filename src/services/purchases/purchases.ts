@@ -1,5 +1,7 @@
+import "server-only";
+
 import { query } from "@/src/lib/db/mysql";
-import { requirePermission } from "@/src/services/auth/authorization";
+import { requireAnyPermission } from "@/src/services/auth/authorization";
 
 export type PurchaseItem = {
   id_compra: number;
@@ -41,7 +43,13 @@ type PurchaseRowRaw = {
 export async function listPurchases(filters?: {
   month?: string; // YYYY-MM
 }): Promise<{ purchases: PurchaseItem[]; summary: PurchasesSummary }> {
-  await requirePermission("COMPRA_VER");
+  await requireAnyPermission([
+    "COMPRA_VER",
+    "INVENTARIO_VER",
+    "PRODUCTO_VER",
+    "DASHBOARD_VER",
+    "VENTA_VER",
+  ]);
 
   let sql = `
     SELECT 
@@ -63,7 +71,7 @@ export async function listPurchases(filters?: {
     LEFT JOIN detalle_compras dc ON dc.id_compra = c.id_compra
     LEFT JOIN variantes_producto vp ON vp.id_variante = dc.id_variante
     LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
-    WHERE c.estado != 'ANULADA'
+    WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
   `;
 
   const params: unknown[] = [];
@@ -76,30 +84,31 @@ export async function listPurchases(filters?: {
   sql += `
     GROUP BY c.id_compra
     ORDER BY c.fecha DESC, c.id_compra DESC
+    LIMIT 200
   `;
 
   try {
-    const rows = await query<PurchaseRowRaw>(sql, params);
+    const rows = await query<PurchaseRowRaw>(sql, params).catch(() => []);
 
-    const purchases: PurchaseItem[] = rows.map((r) => ({
+    const purchases: PurchaseItem[] = (rows ?? []).map((r) => ({
       id_compra: Number(r.id_compra),
-      numero_compra: r.numero_compra,
+      numero_compra: r.numero_compra || `#${r.id_compra}`,
       fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
-      proveedor: r.proveedor_nombre || "Distribuidora Nacional",
+      proveedor: r.proveedor_nombre ?? "Distribuidora Nacional",
       subtotal: Number(r.subtotal) || 0,
       iva: Number(r.iva) || 0,
       total: Number(r.total) || 0,
       unidades: Number(r.unidades) || 0,
       producto: r.producto_desc || "Edredones / Sábanas",
       estado: r.estado,
-      observaciones: r.observaciones,
-      usuario: r.usuario_nombre || "Administrador",
+      observaciones: r.observaciones ?? null,
+      usuario: r.usuario_nombre ?? "Administrador",
     }));
 
     const total = purchases.reduce((sum, p) => sum + p.total, 0);
     const unidades = purchases.reduce((sum, p) => sum + p.unidades, 0);
     const count = purchases.length;
-    const promedio = count > 0 ? total / count : 0;
+    const promedio = count > 0 ? Number((total / count).toFixed(2)) : 0;
 
     return {
       purchases,

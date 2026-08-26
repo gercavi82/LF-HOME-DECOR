@@ -1,11 +1,14 @@
-import { Calendar, Filter, Receipt, RotateCcw, TrendingUp, Layers } from "lucide-react";
+import { Calendar, Filter, Receipt, RotateCcw, TrendingUp, Layers, History } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { getFinancialReport } from "@/src/services/reports/reports";
+import { listCommissionPayments } from "@/src/services/commissions/commissions";
+import { CommissionPaymentModal } from "@/src/components/commissions/payment-modal";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
+const dateFormatter = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" });
 
 const MONTHS_LIST = [
   { value: "01", label: "01 - Enero" },
@@ -29,22 +32,33 @@ export default async function ReportsPage({
 }) {
   const { anio = "", mes = "", tipo = "" } = await searchParams;
 
-  const data = await getFinancialReport({
-    year: anio,
-    month: mes,
-    tipoId: tipo,
-  });
+  const [data, commissionPayments] = await Promise.all([
+    getFinancialReport({
+      year: anio,
+      month: mes,
+      tipoId: tipo,
+    }),
+    listCommissionPayments(),
+  ]);
 
   const hasActiveFilters = Boolean(anio || mes || tipo);
+
+  // Advisors list with remaining balance for payment modal
+  const advisorOptions = data.advisors.map((a) => ({
+    id_usuario: a.id_usuario,
+    asesor: a.asesor,
+    saldo_pendiente: Math.max(0, a.comision_asesor - a.comision_pagada),
+  }));
 
   return (
     <ContentContainer>
       <PageHeader
         eyebrow="Consolidado financiero"
         title="Reportes y comisiones"
-        description="Estado de resultados, desglose por meses/años, tipos de productos y liquidación por asesor."
+        description="Estado de resultados, desglose por meses/años, tipos de productos y abonos parciales de comisiones."
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <CommissionPaymentModal advisors={advisorOptions} />
             <Link
               href="/gastos"
               className="inline-flex h-11 items-center gap-2 rounded-xl border bg-lf-surface px-4 text-sm font-semibold text-lf-navy"
@@ -278,22 +292,22 @@ export default async function ReportsPage({
         </TableContainer>
       </div>
 
-      {/* SECCIÓN 3: LIQUIDACIÓN DE COMISIONES POR ASESOR */}
-      <div className="space-y-3">
+      {/* SECCIÓN 3: LIQUIDACIÓN DE COMISIONES POR ASESOR CON ABONOS */}
+      <div className="mb-8 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
-              <TrendingUp size={19} className="text-lf-terracotta" /> Liquidación de Comisiones por Asesor
+              <TrendingUp size={19} className="text-lf-terracotta" /> Liquidación de Comisiones y Abonos por Asesor
             </h2>
-            <p className="text-sm text-lf-muted">Participación del 60% para el Asesor y 40% para el Local según los filtros seleccionados.</p>
+            <p className="text-sm text-lf-muted">Comisión generada (60%), total abonado/pagado y saldo pendiente por liquidar.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="rounded-xl border bg-lf-surface px-3 py-1.5 text-xs">
-              <span className="font-semibold text-emerald-700">Pagado: </span>
+            <div className="rounded-xl border bg-emerald-50 px-3 py-1.5 text-xs">
+              <span className="font-semibold text-emerald-800">Total Pagado: </span>
               <strong>{currency.format(data.kpis.comisionesPagadas)}</strong>
             </div>
             <div className="rounded-xl border bg-amber-50 px-3 py-1.5 text-xs">
-              <span className="font-semibold text-amber-800">Pendiente: </span>
+              <span className="font-semibold text-amber-800">Saldo Pendiente: </span>
               <strong>{currency.format(data.kpis.comisionesPendientes)}</strong>
             </div>
           </div>
@@ -305,49 +319,106 @@ export default async function ReportsPage({
               <tr>
                 <TableHead>Asesor</TableHead>
                 <TableHead className="text-right">Ventas</TableHead>
-                <TableHead className="text-right">Costo</TableHead>
                 <TableHead className="text-right">Utilidad</TableHead>
-                <TableHead className="text-right">Local (40%)</TableHead>
-                <TableHead className="text-right">Asesor (60%)</TableHead>
-                <TableHead className="text-center">Unidades</TableHead>
+                <TableHead className="text-right">Comisión Total (60%)</TableHead>
+                <TableHead className="text-right text-emerald-700">Total Pagado / Abonos</TableHead>
+                <TableHead className="text-right text-amber-700">Saldo Pendiente</TableHead>
                 <TableHead className="text-center">Estado</TableHead>
+                <TableHead className="text-center">Acción</TableHead>
               </tr>
             </thead>
             <tbody>
-              {data.advisors.map((adv) => (
-                <tr key={adv.id_usuario} className="hover:bg-lf-surface-muted/60">
-                  <TableCell>
-                    <p className="font-semibold text-lf-navy">{adv.asesor}</p>
-                    <p className="text-xs text-lf-muted">{adv.cedula} · {adv.correo}</p>
-                  </TableCell>
-                  <TableCell className="text-right font-medium">{currency.format(adv.total_ventas)}</TableCell>
-                  <TableCell className="text-right text-lf-muted">{currency.format(adv.total_costo)}</TableCell>
-                  <TableCell className="text-right font-semibold text-amber-700">{currency.format(adv.total_utilidad)}</TableCell>
-                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(adv.comision_local)}</TableCell>
-                  <TableCell className="text-right font-bold text-emerald-700">{currency.format(adv.comision_asesor)}</TableCell>
-                  <TableCell className="text-center">{adv.unidades_vendidas}</TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={adv.estado_pago === "PAGADO" ? "success" : adv.estado_pago === "PENDIENTE" ? "warning" : "neutral"}>
-                      {adv.estado_pago === "PAGADO" ? "Pagado" : adv.estado_pago === "PENDIENTE" ? "Pendiente" : "Sin ventas"}
-                    </Badge>
-                  </TableCell>
-                </tr>
-              ))}
+              {data.advisors.map((adv) => {
+                const saldoPendiente = Math.max(0, adv.comision_asesor - adv.comision_pagada);
+                return (
+                  <tr key={adv.id_usuario} className="hover:bg-lf-surface-muted/60">
+                    <TableCell>
+                      <p className="font-semibold text-lf-navy">{adv.asesor}</p>
+                      <p className="text-xs text-lf-muted">{adv.cedula} · {adv.correo}</p>
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{currency.format(adv.total_ventas)}</TableCell>
+                    <TableCell className="text-right font-semibold text-amber-700">{currency.format(adv.total_utilidad)}</TableCell>
+                    <TableCell className="text-right font-bold text-lf-navy">{currency.format(adv.comision_asesor)}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">{currency.format(adv.comision_pagada)}</TableCell>
+                    <TableCell className="text-right font-bold text-amber-700">{currency.format(saldoPendiente)}</TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant={adv.estado_pago === "PAGADO" ? "success" : adv.comision_pagada > 0 ? "warning" : adv.comision_asesor > 0 ? "warning" : "neutral"}>
+                        {adv.estado_pago === "PAGADO" ? "Liquidado" : adv.comision_pagada > 0 ? "Abono Parcial" : adv.comision_asesor > 0 ? "Pendiente" : "Sin ventas"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <CommissionPaymentModal advisors={advisorOptions} defaultAdvisorId={adv.id_usuario} />
+                    </TableCell>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
-                <TableCell>TOTAL ASESORES</TableCell>
+                <TableCell>TOTAL CONSOLIDADO</TableCell>
                 <TableCell className="text-right">{currency.format(data.kpis.totalVentas)}</TableCell>
-                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
                 <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesLocal)}</TableCell>
-                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
-                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
-                <TableCell className="text-center">—</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
+                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesPagadas)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.comisionesPendientes)}</TableCell>
+                <TableCell colSpan={2}>—</TableCell>
               </tr>
             </tfoot>
           </Table>
         </TableContainer>
+      </div>
+
+      {/* SECCIÓN 4: HISTORIAL DE ABONOS Y PAGOS REALIZADOS */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
+              <History size={19} className="text-lf-terracotta" /> Historial de Abonos y Pagos de Comisiones Realizados
+            </h2>
+            <p className="text-sm text-lf-muted">Registro detallado de transferencias y abonos entregados a cada asesor.</p>
+          </div>
+        </div>
+
+        {commissionPayments.length ? (
+          <TableContainer>
+            <Table>
+              <thead>
+                <tr>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Asesor Beneficiario</TableHead>
+                  <TableHead>Forma de Pago</TableHead>
+                  <TableHead>Nº Referencia</TableHead>
+                  <TableHead>Observaciones</TableHead>
+                  <TableHead>Registrado Por</TableHead>
+                  <TableHead className="text-right">Monto Abonado</TableHead>
+                </tr>
+              </thead>
+              <tbody>
+                {commissionPayments.map((p) => (
+                  <tr key={p.id_pago_comision} className="hover:bg-lf-surface-muted/60">
+                    <TableCell className="whitespace-nowrap text-sm">
+                      {dateFormatter.format(new Date(`${p.fecha}T12:00:00`))}
+                    </TableCell>
+                    <TableCell className="font-semibold text-lf-navy">{p.asesor}</TableCell>
+                    <TableCell>
+                      <Badge variant="neutral">{p.forma_pago}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs font-mono text-lf-muted">{p.referencia || "—"}</TableCell>
+                    <TableCell className="text-sm text-lf-muted">{p.observaciones || "—"}</TableCell>
+                    <TableCell className="text-xs text-lf-muted">{p.registrador}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">{currency.format(p.monto)}</TableCell>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Card>
+            <CardContent className="p-6 text-center text-sm text-lf-muted">
+              No se han registrado abonos ni pagos parciales aún. Utilice el botón superior para ingresar el primer pago.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentContainer>
   );

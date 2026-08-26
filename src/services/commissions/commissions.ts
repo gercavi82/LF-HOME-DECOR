@@ -1,7 +1,20 @@
 import "server-only";
 
-import { query } from "@/src/lib/db/mysql";
-import { requirePermission } from "@/src/services/auth/authorization";
+import { query, execute } from "@/src/lib/db/mysql";
+import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
+import { commissionPaymentSchema, type CommissionPaymentInput } from "@/src/lib/validation/commissions";
+
+export type CommissionPayment = {
+  id_pago_comision: number;
+  id_usuario: number;
+  asesor: string;
+  fecha: string;
+  monto: number;
+  forma_pago: string;
+  referencia: string | null;
+  observaciones: string | null;
+  registrador: string;
+};
 
 export type AdvisorCommissionSummary = {
   id_usuario: number;
@@ -16,7 +29,7 @@ export type AdvisorCommissionSummary = {
   unidades_vendidas: number;
   comision_pagada: number;
   saldo_pendiente: number;
-  estado_pago: "PAGADO" | "PENDIENTE" | "SIN_COMISION";
+  estado_pago: "PAGADO" | "ABONO_PARCIAL" | "PENDIENTE" | "SIN_COMISION";
 };
 
 type CommissionRowRaw = {
@@ -28,7 +41,7 @@ type CommissionRowRaw = {
   total_ventas: number;
   total_subtotal: number;
   unidades: number;
-  observaciones_concat: string | null;
+  total_abonos: number;
 };
 
 export async function getCommissionsSummary(month?: string): Promise<{
@@ -44,7 +57,7 @@ export async function getCommissionsSummary(month?: string): Promise<{
     pendiente: number;
   };
 }> {
-  await requirePermission("COMISIONES_VER");
+  await requireAnyPermission(["COMISIONES_VER", "REPORTES_VER", "FINANZAS_VER", "DASHBOARD_VER"]);
 
   let sql = `
     SELECT 
@@ -53,10 +66,14 @@ export async function getCommissionsSummary(month?: string): Promise<{
       u.apellidos,
       u.cedula,
       u.correo,
-      COALESCE(SUM(v.total), 0) AS total_ventas,
-      COALESCE(SUM(v.subtotal), 0) AS total_subtotal,
+      COALESCE(SUM(d.total), 0) AS total_ventas,
+      COALESCE(SUM(d.subtotal), 0) AS total_subtotal,
       COALESCE(SUM(d.cantidad), 0) AS unidades,
-      GROUP_CONCAT(v.observaciones SEPARATOR ' || ') AS observaciones_concat
+      (
+        SELECT COALESCE(SUM(pc.monto), 0)
+        FROM pagos_comisiones pc
+        WHERE pc.id_usuario = u.id_usuario AND pc.activo = 1
+      ) AS total_abonos
     FROM usuarios u
     LEFT JOIN ventas v ON v.id_usuario = u.id_usuario AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
   `;
@@ -70,33 +87,35 @@ export async function getCommissionsSummary(month?: string): Promise<{
 
   sql += `
     LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
-    WHERE u.activo = 1 AND u.id_perfil IN (2, 3) -- Venta Local y Asesores
+    WHERE u.activo = 1 AND u.id_perfil IN (2, 3)
     GROUP BY u.id_usuario
     ORDER BY total_ventas DESC, u.nombres ASC
   `;
 
   try {
-    const rows = await query<CommissionRowRaw>(sql, params);
+    const rows = await query<CommissionRowRaw>(sql, params).catch(() => []);
 
-    const advisors: AdvisorCommissionSummary[] = rows.map((r) => {
+    const advisors: AdvisorCommissionSummary[] = (rows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
-      // El margen promedio de edredones y sábanas es aprox 33% de utilidad sobre venta (o Costo = ~67% de Venta)
-      // Si existen observaciones con comisiones explícitas, las sumamos; si no, calculamos 60%/40% sobre utilidad estimada
       const utilidad = ventas > 0 ? Number((ventas * 0.327).toFixed(2)) : 0;
       const costo = Number((ventas - utilidad).toFixed(2));
       const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
       const comisionLocal = Number((utilidad * 0.40).toFixed(2));
       const unidades = Number(r.unidades) || 0;
 
-      // Evaluar pagos en base a observaciones registradas
-      const obs = r.observaciones_concat || "";
-      const isPaid = obs.includes("[PAGADA]") && !obs.includes("[PENDIENTE]");
-      const pagado = isPaid ? comisionAsesor : 0;
-      const pendiente = Math.max(0, comisionAsesor - pagado);
+      // Abonos y pagos reales registrados
+      const abonosRegistrados = Number(r.total_abonos) || 0;
+      const pendiente = Math.max(0, comisionAsesor - abonosRegistrados);
 
-      let estadoPago: "PAGADO" | "PENDIENTE" | "SIN_COMISION" = "SIN_COMISION";
+      let estadoPago: "PAGADO" | "ABONO_PARCIAL" | "PENDIENTE" | "SIN_COMISION" = "SIN_COMISION";
       if (comisionAsesor > 0) {
-        estadoPago = pendiente <= 0 ? "PAGADO" : "PENDIENTE";
+        if (pendiente <= 0) {
+          estadoPago = "PAGADO";
+        } else if (abonosRegistrados > 0) {
+          estadoPago = "ABONO_PARCIAL";
+        } else {
+          estadoPago = "PENDIENTE";
+        }
       }
 
       return {
@@ -110,7 +129,7 @@ export async function getCommissionsSummary(month?: string): Promise<{
         comision_asesor: comisionAsesor,
         comision_local: comisionLocal,
         unidades_vendidas: unidades,
-        comision_pagada: pagado,
+        comision_pagada: abonosRegistrados,
         saldo_pendiente: pendiente,
         estado_pago: estadoPago,
       };
@@ -135,4 +154,98 @@ export async function getCommissionsSummary(month?: string): Promise<{
       totals: { ventas: 0, costos: 0, utilidad: 0, comision_asesor: 0, comision_local: 0, unidades: 0, pagado: 0, pendiente: 0 },
     };
   }
+}
+
+export async function listCommissionPayments(advisorId?: number): Promise<CommissionPayment[]> {
+  await requireAnyPermission(["COMISIONES_VER", "REPORTES_VER", "FINANZAS_VER", "DASHBOARD_VER"]);
+
+  let sql = `
+    SELECT 
+      pc.id_pago_comision,
+      pc.id_usuario,
+      CONCAT(u.nombres, ' ', u.apellidos) AS asesor,
+      pc.fecha,
+      pc.monto,
+      pc.forma_pago,
+      pc.referencia,
+      pc.observaciones,
+      CONCAT(reg.nombres, ' ', reg.apellidos) AS registrador
+    FROM pagos_comisiones pc
+    JOIN usuarios u ON u.id_usuario = pc.id_usuario
+    LEFT JOIN usuarios reg ON reg.id_usuario = pc.registrado_por
+    WHERE pc.activo = 1
+  `;
+
+  const params: unknown[] = [];
+  if (advisorId && advisorId > 0) {
+    sql += ` AND pc.id_usuario = ?`;
+    params.push(advisorId);
+  }
+
+  sql += ` ORDER BY pc.fecha DESC, pc.id_pago_comision DESC LIMIT 100`;
+
+  try {
+    const rows = await query<{
+      id_pago_comision: number;
+      id_usuario: number;
+      asesor: string;
+      fecha: Date | string;
+      monto: number;
+      forma_pago: string;
+      referencia: string | null;
+      observaciones: string | null;
+      registrador: string | null;
+    }>(sql, params).catch(() => []);
+
+    return (rows ?? []).map((r) => ({
+      id_pago_comision: Number(r.id_pago_comision),
+      id_usuario: Number(r.id_usuario),
+      asesor: r.asesor,
+      fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
+      monto: Number(r.monto) || 0,
+      forma_pago: r.forma_pago || "Transferencia",
+      referencia: r.referencia ?? null,
+      observaciones: r.observaciones ?? null,
+      registrador: r.registrador || "Administración",
+    }));
+  } catch (error) {
+    console.error("listCommissionPayments ERROR:", error);
+    return [];
+  }
+}
+
+export async function registerCommissionPayment(input: CommissionPaymentInput) {
+  const context = await requirePermission("COMISIONES_PAGAR");
+  const parsed = commissionPaymentSchema.parse(input);
+
+  // Asegurar tabla pagos_comisiones
+  await execute(`
+    CREATE TABLE IF NOT EXISTS \`pagos_comisiones\` (
+      \`id_pago_comision\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+      \`id_usuario\` BIGINT NOT NULL,
+      \`fecha\` DATE NOT NULL,
+      \`monto\` DECIMAL(12,2) NOT NULL,
+      \`forma_pago\` VARCHAR(50) NOT NULL DEFAULT 'Transferencia',
+      \`referencia\` VARCHAR(100) NULL,
+      \`observaciones\` TEXT NULL,
+      \`registrado_por\` BIGINT NULL,
+      \`activo\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`fecha_creacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX \`idx_pagos_comisiones_fecha\` (\`fecha\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `).catch(() => null);
+
+  return execute(
+    `INSERT INTO pagos_comisiones (id_usuario, fecha, monto, forma_pago, referencia, observaciones, registrado_por, activo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+    [
+      parsed.id_usuario,
+      parsed.fecha,
+      parsed.monto,
+      parsed.forma_pago,
+      parsed.referencia || null,
+      parsed.observaciones || null,
+      context.id_usuario,
+    ]
+  );
 }

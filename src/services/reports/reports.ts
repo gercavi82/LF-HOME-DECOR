@@ -36,6 +36,8 @@ export type AdvisorReportItem = {
   comision_asesor: number;
   comision_local: number;
   unidades_vendidas: number;
+  comision_pagada: number;
+  saldo_pendiente: number;
   estado_pago: "PAGADO" | "PENDIENTE" | "SIN_COMISION";
 };
 
@@ -215,7 +217,11 @@ export async function getFinancialReport(filters?: {
         u.correo,
         COALESCE(SUM(d.cantidad), 0) AS unidades,
         COALESCE(SUM(d.total), 0) AS total_ventas,
-        GROUP_CONCAT(v.observaciones SEPARATOR ' || ') AS observaciones_concat
+        (
+          SELECT COALESCE(SUM(pc.monto), 0)
+          FROM pagos_comisiones pc
+          WHERE pc.id_usuario = u.id_usuario AND pc.activo = 1
+        ) AS total_abonos
       FROM usuarios u
       LEFT JOIN ventas v ON v.id_usuario = u.id_usuario AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
     `;
@@ -255,7 +261,7 @@ export async function getFinancialReport(filters?: {
       correo: string;
       unidades: number;
       total_ventas: number;
-      observaciones_concat: string | null;
+      total_abonos: number;
     }>(advisorSql, advParams).catch(() => []);
 
     let pagadoTotal = 0;
@@ -268,17 +274,20 @@ export async function getFinancialReport(filters?: {
       const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
       const comisionLocal = Number((utilidad * 0.40).toFixed(2));
 
-      const obs = r.observaciones_concat || "";
-      const isPaid = obs.includes("[PAGADA]") && !obs.includes("[PENDIENTE]");
-      const pagado = isPaid ? comisionAsesor : 0;
-      const pendiente = Math.max(0, comisionAsesor - pagado);
+      const abonosRegistrados = Number(r.total_abonos) || 0;
+      const pagado = abonosRegistrados;
+      const pendiente = Math.max(0, comisionAsesor - abonosRegistrados);
 
       pagadoTotal += pagado;
       pendienteTotal += pendiente;
 
       let estadoPago: "PAGADO" | "PENDIENTE" | "SIN_COMISION" = "SIN_COMISION";
       if (comisionAsesor > 0) {
-        estadoPago = pendiente <= 0 ? "PAGADO" : "PENDIENTE";
+        if (pendiente <= 0) {
+          estadoPago = "PAGADO";
+        } else {
+          estadoPago = "PENDIENTE";
+        }
       }
 
       return {
@@ -292,6 +301,8 @@ export async function getFinancialReport(filters?: {
         comision_asesor: comisionAsesor,
         comision_local: comisionLocal,
         unidades_vendidas: Number(r.unidades) || 0,
+        comision_pagada: pagado,
+        saldo_pendiente: pendiente,
         estado_pago: estadoPago,
       };
     });
