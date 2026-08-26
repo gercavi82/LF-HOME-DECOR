@@ -3,6 +3,7 @@ import "server-only";
 import { query, execute } from "@/src/lib/db/mysql";
 import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
 import { commissionPaymentSchema, type CommissionPaymentInput } from "@/src/lib/validation/commissions";
+import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
 
 export type CommissionPayment = {
   id_pago_comision: number;
@@ -58,6 +59,7 @@ export async function getCommissionsSummary(month?: string): Promise<{
   };
 }> {
   await requireAnyPermission(["COMISIONES_VER", "REPORTES_VER", "FINANZAS_VER", "DASHBOARD_VER"]);
+  await ensureCustomTables().catch(() => null);
 
   let sql = `
     SELECT 

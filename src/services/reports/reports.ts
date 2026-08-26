@@ -3,6 +3,7 @@ import "server-only";
 import { query } from "@/src/lib/db/mysql";
 import { requireAnyPermission } from "@/src/services/auth/authorization";
 import { listExpenses } from "@/src/services/expenses/expenses";
+import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
 
 export type MonthlySalesBreakdown = {
   year_month: string;
@@ -88,6 +89,7 @@ export async function getFinancialReport(filters?: {
   tipoId?: string;
 }): Promise<FinancialReportData> {
   await requireAnyPermission(["REPORTES_VER", "FINANZAS_VER", "DASHBOARD_VER"]);
+  await ensureCustomTables().catch(() => null);
 
   const selectedYear = filters?.year?.trim() || "";
   const selectedMonth = filters?.month?.trim() || "";
@@ -99,6 +101,9 @@ export async function getFinancialReport(filters?: {
       `SELECT DISTINCT DATE_FORMAT(fecha, '%Y') AS anio FROM ventas WHERE fecha IS NOT NULL ORDER BY anio DESC`
     ).catch(() => []);
     const availableYears = (yearRows ?? []).map((r) => String(r.anio)).filter(Boolean);
+    if (!availableYears.includes("2026")) {
+      availableYears.push("2026");
+    }
 
     // 2. Obtener tipos de producto disponibles
     const typeRows = await query<{ id: number; nombre: string }>(
@@ -136,12 +141,12 @@ export async function getFinancialReport(filters?: {
       }>(
         `SELECT 
            DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
-           COALESCE(SUM(d.cantidad), 0) AS unidades,
-           COALESCE(SUM(d.total), 0) AS total_ventas
+           COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
+           COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas
          FROM ventas v
-         JOIN detalle_ventas d ON d.id_venta = v.id_venta
-         JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-         JOIN productos prod ON prod.id_producto = vp.id_producto
+         LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+         LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+         LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
          ${whereSql}
          GROUP BY DATE_FORMAT(v.fecha, '%Y-%m')
          ORDER BY DATE_FORMAT(v.fecha, '%Y-%m') ASC`,
@@ -198,16 +203,16 @@ export async function getFinancialReport(filters?: {
       `SELECT 
          COALESCE(tp.nombre, 'General') AS tipo_nombre,
          COALESCE(cat.nombre, 'General') AS cat_nombre,
-         COALESCE(SUM(d.cantidad), 0) AS unidades,
-         COALESCE(SUM(d.total), 0) AS total_ventas
+         COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
+         COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas
        FROM ventas v
-       JOIN detalle_ventas d ON d.id_venta = v.id_venta
-       JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-       JOIN productos prod ON prod.id_producto = vp.id_producto
+       LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+       LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+       LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
        LEFT JOIN tipos_producto tp ON tp.id_tipo = prod.id_tipo
        LEFT JOIN categorias cat ON cat.id_categoria = prod.id_categoria
        ${whereSql}
-       GROUP BY prod.id_tipo, tp.nombre, cat.nombre
+       GROUP BY COALESCE(tp.nombre, 'General'), COALESCE(cat.nombre, 'General')
        ORDER BY total_ventas DESC`,
       params
     ).catch(() => []);
@@ -237,8 +242,8 @@ export async function getFinancialReport(filters?: {
         u.apellidos,
         u.cedula,
         u.correo,
-        COALESCE(SUM(d.cantidad), 0) AS unidades,
-        COALESCE(SUM(d.total), 0) AS total_ventas,
+        COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
+        COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas,
         (
           SELECT COALESCE(SUM(pc.monto), 0)
           FROM pagos_comisiones pc
@@ -270,7 +275,7 @@ export async function getFinancialReport(filters?: {
     }
 
     advisorSql += `
-      WHERE u.activo = 1 AND u.id_perfil IN (2, 3)
+      WHERE u.activo = 1 AND (u.id_perfil IN (2, 3, 4) OR u.id_usuario IN (SELECT DISTINCT id_usuario FROM ventas))
       GROUP BY u.id_usuario
       ORDER BY total_ventas DESC, u.nombres ASC
     `;

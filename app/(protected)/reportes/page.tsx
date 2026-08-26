@@ -256,17 +256,25 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {data.monthlyBreakdown.map((m) => (
-                <tr key={m.year_month} className="hover:bg-lf-surface-muted/60">
-                  <TableCell className="font-semibold text-lf-navy">{m.label}</TableCell>
-                  <TableCell className="text-center font-bold">{m.unidades}</TableCell>
-                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.total_ventas)}</TableCell>
-                  <TableCell className="text-right text-lf-muted">{currency.format(m.total_costo)}</TableCell>
-                  <TableCell className="text-right font-semibold text-amber-700">{currency.format(m.utilidad)}</TableCell>
-                  <TableCell className="text-right font-bold text-emerald-700">{currency.format(m.comision_asesores)}</TableCell>
-                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.comision_local)}</TableCell>
+              {data.monthlyBreakdown.length ? (
+                data.monthlyBreakdown.map((m) => (
+                  <tr key={m.year_month} className="hover:bg-lf-surface-muted/60">
+                    <TableCell className="font-semibold text-lf-navy">{m.label}</TableCell>
+                    <TableCell className="text-center font-bold">{m.unidades}</TableCell>
+                    <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.total_ventas)}</TableCell>
+                    <TableCell className="text-right text-lf-muted">{currency.format(m.total_costo)}</TableCell>
+                    <TableCell className="text-right font-semibold text-amber-700">{currency.format(m.utilidad)}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">{currency.format(m.comision_asesores)}</TableCell>
+                    <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.comision_local)}</TableCell>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <TableCell colSpan={7} className="py-6 text-center text-sm text-lf-muted">
+                    No se registran ventas para los filtros seleccionados.
+                  </TableCell>
                 </tr>
-              ))}
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
@@ -308,21 +316,29 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {data.typeBreakdown.map((t) => (
-                <tr key={`${t.tipo}-${t.categoria}`} className="hover:bg-lf-surface-muted/60">
-                  <TableCell className="font-semibold text-lf-navy">{t.tipo}</TableCell>
-                  <TableCell className="text-sm text-lf-muted">{t.categoria}</TableCell>
-                  <TableCell className="text-center font-bold">{t.unidades}</TableCell>
-                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(t.total_ventas)}</TableCell>
-                  <TableCell className="text-right text-lf-muted">{currency.format(t.total_costo)}</TableCell>
-                  <TableCell className="text-right font-semibold text-amber-700">{currency.format(t.utilidad)}</TableCell>
-                  <TableCell className="text-center">
-                    <span className="inline-block rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800">
-                      {t.margen_porcentaje}%
-                    </span>
+              {data.typeBreakdown.length ? (
+                data.typeBreakdown.map((t) => (
+                  <tr key={`${t.tipo}-${t.categoria}`} className="hover:bg-lf-surface-muted/60">
+                    <TableCell className="font-semibold text-lf-navy">{t.tipo}</TableCell>
+                    <TableCell className="text-sm text-lf-muted">{t.categoria}</TableCell>
+                    <TableCell className="text-center font-bold">{t.unidades}</TableCell>
+                    <TableCell className="text-right font-medium text-lf-navy">{currency.format(t.total_ventas)}</TableCell>
+                    <TableCell className="text-right text-lf-muted">{currency.format(t.total_costo)}</TableCell>
+                    <TableCell className="text-right font-semibold text-amber-700">{currency.format(t.utilidad)}</TableCell>
+                    <TableCell className="text-center">
+                      <span className="inline-block rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800">
+                        {t.margen_porcentaje}%
+                      </span>
+                    </TableCell>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <TableCell colSpan={7} className="py-6 text-center text-sm text-lf-muted">
+                    No se registran ventas para este tipo de producto.
                   </TableCell>
                 </tr>
-              ))}
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
@@ -374,30 +390,38 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {data.advisors.map((adv) => {
-                const saldoPendiente = Math.max(0, adv.comision_asesor - adv.comision_pagada);
-                return (
-                  <tr key={adv.id_usuario} className="hover:bg-lf-surface-muted/60">
-                    <TableCell>
-                      <p className="font-semibold text-lf-navy">{adv.asesor}</p>
-                      <p className="text-xs text-lf-muted">{adv.cedula} · {adv.correo}</p>
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{currency.format(adv.total_ventas)}</TableCell>
-                    <TableCell className="text-right font-semibold text-amber-700">{currency.format(adv.total_utilidad)}</TableCell>
-                    <TableCell className="text-right font-bold text-lf-navy">{currency.format(adv.comision_asesor)}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">{currency.format(adv.comision_pagada)}</TableCell>
-                    <TableCell className="text-right font-bold text-amber-700">{currency.format(saldoPendiente)}</TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant={adv.estado_pago === "PAGADO" ? "success" : adv.comision_pagada > 0 ? "warning" : adv.comision_asesor > 0 ? "warning" : "neutral"}>
-                        {adv.estado_pago === "PAGADO" ? "Liquidado" : adv.comision_pagada > 0 ? "Abono Parcial" : adv.comision_asesor > 0 ? "Pendiente" : "Sin ventas"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <CommissionPaymentModal advisors={advisorOptions} defaultAdvisorId={adv.id_usuario} />
-                    </TableCell>
-                  </tr>
-                );
-              })}
+              {data.advisors.length ? (
+                data.advisors.map((adv) => {
+                  const saldoPendiente = Math.max(0, adv.comision_asesor - adv.comision_pagada);
+                  return (
+                    <tr key={adv.id_usuario} className="hover:bg-lf-surface-muted/60">
+                      <TableCell>
+                        <p className="font-semibold text-lf-navy">{adv.asesor}</p>
+                        <p className="text-xs text-lf-muted">{adv.cedula} · {adv.correo}</p>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">{currency.format(adv.total_ventas)}</TableCell>
+                      <TableCell className="text-right font-semibold text-amber-700">{currency.format(adv.total_utilidad)}</TableCell>
+                      <TableCell className="text-right font-bold text-lf-navy">{currency.format(adv.comision_asesor)}</TableCell>
+                      <TableCell className="text-right font-bold text-emerald-700">{currency.format(adv.comision_pagada)}</TableCell>
+                      <TableCell className="text-right font-bold text-amber-700">{currency.format(saldoPendiente)}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={adv.estado_pago === "PAGADO" ? "success" : adv.comision_pagada > 0 ? "warning" : adv.comision_asesor > 0 ? "warning" : "neutral"}>
+                          {adv.estado_pago === "PAGADO" ? "Liquidado" : adv.comision_pagada > 0 ? "Abono Parcial" : adv.comision_asesor > 0 ? "Pendiente" : "Sin ventas"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <CommissionPaymentModal advisors={advisorOptions} defaultAdvisorId={adv.id_usuario} />
+                      </TableCell>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <TableCell colSpan={8} className="py-6 text-center text-sm text-lf-muted">
+                    No se registran asesores comerciales.
+                  </TableCell>
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">

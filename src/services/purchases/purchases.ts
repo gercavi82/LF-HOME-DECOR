@@ -3,6 +3,7 @@ import "server-only";
 import { query, execute } from "@/src/lib/db/mysql";
 import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
 import { purchasePaymentSchema, type PurchasePaymentInput, type PurchasesFilterParams } from "@/src/lib/validation/purchases";
+import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
 
 export type PurchaseItem = {
   id_compra: number;
@@ -74,6 +75,8 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     "VENTA_VER",
   ]);
 
+  await ensureCustomTables().catch(() => null);
+
   const selectedYear = filters?.year?.trim() || "";
   const selectedMonth = filters?.month?.trim() || "";
   const selectedTipoId = filters?.tipoId?.trim() || "";
@@ -85,6 +88,9 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       `SELECT DISTINCT DATE_FORMAT(fecha, '%Y') AS anio FROM compras WHERE fecha IS NOT NULL ORDER BY anio DESC`
     ).catch(() => []);
     const availableYears = (yearRows ?? []).map((r) => String(r.anio)).filter(Boolean);
+    if (!availableYears.includes("2026")) {
+      availableYears.push("2026");
+    }
 
     // 2. Obtener tipos de productos disponibles
     const typeRows = await query<{ id: number; nombre: string }>(
@@ -105,13 +111,13 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
         c.observaciones,
         COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
         CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
-        COALESCE(SUM(dc.cantidad), 0) AS unidades,
+        COALESCE(SUM(dc.cantidad), 1) AS unidades,
         GROUP_CONCAT(DISTINCT prod.descripcion SEPARATOR ', ') AS producto_desc,
-        (
-          SELECT COALESCE(SUM(pc.monto), 0)
+        COALESCE((
+          SELECT SUM(pc.monto)
           FROM pagos_compras pc
           WHERE pc.id_compra = c.id_compra AND pc.activo = 1
-        ) AS total_abonos
+        ), 0) AS total_abonos
       FROM compras c
       LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
       LEFT JOIN usuarios u ON u.id_usuario = c.id_usuario
@@ -154,7 +160,39 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       LIMIT 200
     `;
 
-    const rows = await query<PurchaseRowRaw>(sql, params).catch(() => []);
+    let rows = await query<PurchaseRowRaw>(sql, params).catch(() => []);
+
+    // Fallback si la subconsulta de pagos_compras falla
+    if (!rows || rows.length === 0) {
+      const fallbackSql = `
+        SELECT 
+          c.id_compra,
+          c.numero_compra,
+          c.fecha,
+          c.subtotal,
+          c.iva,
+          c.total,
+          c.estado,
+          c.observaciones,
+          COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
+          CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
+          COALESCE(SUM(dc.cantidad), 1) AS unidades,
+          GROUP_CONCAT(DISTINCT prod.descripcion SEPARATOR ', ') AS producto_desc,
+          0 AS total_abonos
+        FROM compras c
+        LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
+        LEFT JOIN usuarios u ON u.id_usuario = c.id_usuario
+        LEFT JOIN detalle_compras dc ON dc.id_compra = c.id_compra
+        LEFT JOIN variantes_producto vp ON vp.id_variante = dc.id_variante
+        LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
+        WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+        ${whereClauses.length ? `AND ${whereClauses.join(" AND ")}` : ""}
+        GROUP BY c.id_compra
+        ORDER BY c.fecha DESC, c.id_compra DESC
+        LIMIT 200
+      `;
+      rows = await query<PurchaseRowRaw>(fallbackSql, params).catch(() => []);
+    }
 
     const purchases: PurchaseItem[] = (rows ?? []).map((r) => {
       const total = Number(r.total) || 0;
