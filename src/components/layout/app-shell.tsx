@@ -44,7 +44,7 @@ const navigation: NavigationItem[] = [
   { label: "Productos", href: "/productos", icon: PackageSearch, permissions: ["PRODUCTO_VER"] },
   { label: "Inventario", href: "/inventario", icon: Boxes, permissions: ["INVENTARIO_VER"] },
   { label: "Alertas", href: "/alertas", icon: Bell, permissions: ["INVENTARIO_VER"] },
-  { label: "Reportes", href: "/reportes", icon: ChartNoAxesCombined, permissions: ["FINANZAS_VER"] },
+  { label: "Reportes", href: "/reportes", icon: ChartNoAxesCombined, permissions: ["FINANZAS_VER", "REPORTES_VER", "DASHBOARD_VER"] },
   { label: "Usuarios", href: "/usuarios", icon: UsersRound, permissions: ["USUARIO_VER"] },
   { label: "Configuración", href: "/configuracion", icon: Settings, administratorOnly: true },
 ];

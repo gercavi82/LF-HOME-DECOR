@@ -34,8 +34,8 @@ export function UserForm({ profiles, locations, user }: { profiles: CatalogOptio
   return <form onSubmit={submit} className="space-y-6" noValidate>
     {user ? <input type="hidden" name="id_usuario" value={user.id_usuario} /> : null}
     <Card><CardContent className="grid gap-5 pt-5 sm:grid-cols-2 sm:pt-6">
-      <Input {...register("cedula")} label="Cédula" inputMode="numeric" maxLength={10} disabled={Boolean(user) || pending} error={errorFor("cedula")} hint={user ? "La cédula identifica el acceso y no puede modificarse." : "Será también la contraseña temporal inicial."} />
-      <Input {...register("correo")} label="Correo" type="email" autoComplete="email" disabled={Boolean(user) || pending} error={errorFor("correo")} hint={user ? "Correo de contacto del usuario." : "Recibirá comunicaciones de acceso y notificaciones."} />
+      <Input {...register("cedula")} label="Cédula" inputMode="numeric" maxLength={10} disabled={pending} error={errorFor("cedula")} hint={user ? "Cédula de identidad (10 dígitos)." : "Será también la contraseña temporal inicial."} />
+      <Input {...register("correo")} label="Correo" type="email" autoComplete="email" disabled={pending} error={errorFor("correo")} hint="Correo de contacto del usuario." />
       <Input {...register("nombres")} label="Nombres" autoComplete="given-name" disabled={pending} error={errorFor("nombres")} />
       <Input {...register("apellidos")} label="Apellidos" autoComplete="family-name" disabled={pending} error={errorFor("apellidos")} />
       <Input {...register("telefono")} label="Teléfono (opcional)" type="tel" autoComplete="tel" maxLength={20} disabled={pending} error={errorFor("telefono")} />

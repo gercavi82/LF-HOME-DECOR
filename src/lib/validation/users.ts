@@ -12,7 +12,9 @@ export const createUserFormSchema = z.object({
   id_local: z.coerce.number().int().positive("Seleccione un local."),
 });
 
-export const updateUserFormSchema = createUserFormSchema.omit({ cedula: true, correo: true }).extend({ id_usuario: z.coerce.number().int().positive("Usuario inválido.") });
+export const updateUserFormSchema = createUserFormSchema.extend({
+  id_usuario: z.coerce.number().int().positive("Usuario inválido."),
+});
 export type CreateUserFormInput = z.input<typeof createUserFormSchema>;
 export type UserFormField = keyof CreateUserFormInput;
 

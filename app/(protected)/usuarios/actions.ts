@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { execute } from "@/src/lib/db/mysql";
+import { execute, queryOne } from "@/src/lib/db/mysql";
 import { createUserFormSchema, updateUserFormSchema, userFieldErrors, type UserFormField } from "@/src/lib/validation/users";
 import { requirePermission } from "@/src/services/auth/authorization";
 import { recordAuditEvent } from "@/src/services/audit/audit";
@@ -74,9 +74,28 @@ export async function updateUserAction(
   }
 
   try {
+    const existing = await queryOne<{ id_usuario: number; cedula: string; correo: string }>(
+      `SELECT id_usuario, cedula, correo 
+       FROM usuarios 
+       WHERE (cedula = ? OR correo = ?) AND id_usuario <> ? 
+       LIMIT 1`,
+      [parsed.data.cedula, parsed.data.correo, parsed.data.id_usuario]
+    );
+
+    if (existing) {
+      if (existing.cedula === parsed.data.cedula) {
+        return { error: "La cédula ingresada ya está registrada para otro usuario." };
+      }
+      if (existing.correo.toLowerCase() === parsed.data.correo.toLowerCase()) {
+        return { error: "El correo electrónico ya está registrado para otro usuario." };
+      }
+    }
+
     await execute(
       `UPDATE usuarios 
-       SET nombres = ?, 
+       SET cedula = ?,
+           correo = ?,
+           nombres = ?, 
            apellidos = ?, 
            telefono = ?, 
            id_perfil = ?, 
@@ -84,6 +103,8 @@ export async function updateUserAction(
            fecha_actualizacion = NOW() 
        WHERE id_usuario = ?`,
       [
+        parsed.data.cedula,
+        parsed.data.correo,
         parsed.data.nombres,
         parsed.data.apellidos,
         parsed.data.telefono || null,
@@ -99,6 +120,8 @@ export async function updateUserAction(
       action: "UPDATE",
       recordId: target.id_usuario,
       previousValue: {
+        cedula: target.cedula,
+        correo: target.correo,
         nombres: target.nombres,
         apellidos: target.apellidos,
         telefono: target.telefono,
@@ -106,6 +129,8 @@ export async function updateUserAction(
         id_local: target.id_local,
       },
       newValue: {
+        cedula: parsed.data.cedula,
+        correo: parsed.data.correo,
         nombres: parsed.data.nombres,
         apellidos: parsed.data.apellidos,
         telefono: parsed.data.telefono || null,
