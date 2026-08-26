@@ -5,7 +5,53 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. ASEGURAR TABLA GASTOS
+-- 1. ASEGURAR TABLA PROVEEDORES
+CREATE TABLE IF NOT EXISTS `proveedores` (
+  `id_proveedor` INT AUTO_INCREMENT PRIMARY KEY,
+  `ruc_cedula` VARCHAR(20) NOT NULL UNIQUE,
+  `nombre` VARCHAR(150) NOT NULL,
+  `telefono` VARCHAR(50) NULL,
+  `correo` VARCHAR(120) NULL,
+  `direccion` VARCHAR(255) NULL,
+  `activo` TINYINT(1) NOT NULL DEFAULT 1,
+  `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. ASEGURAR TABLA COMPRAS
+CREATE TABLE IF NOT EXISTS `compras` (
+  `id_compra` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `id_proveedor` INT NOT NULL,
+  `id_local` INT NOT NULL,
+  `id_usuario` BIGINT NOT NULL,
+  `numero_compra` VARCHAR(50) NOT NULL UNIQUE,
+  `fecha` DATETIME NOT NULL,
+  `subtotal` DECIMAL(12,2) NOT NULL,
+  `iva` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `total` DECIMAL(12,2) NOT NULL,
+  `observaciones` TEXT NULL,
+  `estado` VARCHAR(20) NOT NULL DEFAULT 'REGISTRADA',
+  `fecha_creacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_compras_proveedor` FOREIGN KEY (`id_proveedor`) REFERENCES `proveedores` (`id_proveedor`),
+  CONSTRAINT `fk_compras_local` FOREIGN KEY (`id_local`) REFERENCES `locales` (`id_local`),
+  CONSTRAINT `fk_compras_usuario` FOREIGN KEY (`id_usuario`) REFERENCES `usuarios` (`id_usuario`),
+  INDEX `idx_compras_fecha` (`fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. ASEGURAR TABLA DETALLE COMPRAS
+CREATE TABLE IF NOT EXISTS `detalle_compras` (
+  `id_detalle_compra` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `id_compra` BIGINT NOT NULL,
+  `id_variante` BIGINT NOT NULL,
+  `cantidad` INT NOT NULL,
+  `precio_unitario` DECIMAL(12,2) NOT NULL,
+  `subtotal` DECIMAL(12,2) NOT NULL,
+  `iva` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `total` DECIMAL(12,2) NOT NULL,
+  CONSTRAINT `fk_detalle_compras_compra` FOREIGN KEY (`id_compra`) REFERENCES `compras` (`id_compra`) ON DELETE CASCADE,
+  CONSTRAINT `fk_detalle_compras_variante` FOREIGN KEY (`id_variante`) REFERENCES `variantes_producto` (`id_variante`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. ASEGURAR TABLA GASTOS
 CREATE TABLE IF NOT EXISTS `gastos` (
   `id_gasto` BIGINT AUTO_INCREMENT PRIMARY KEY,
   `fecha` DATE NOT NULL,
@@ -24,7 +70,7 @@ CREATE TABLE IF NOT EXISTS `gastos` (
   INDEX `idx_gastos_categoria` (`categoria`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 2. ASEGURAR LOCAL Y BODEGA MATRIZ
+-- 5. ASEGURAR LOCAL Y BODEGA MATRIZ
 INSERT INTO `locales` (`id_local`, `codigo`, `nombre`, `direccion`, `telefono`, `activo`) VALUES
 (1, 'MATRIZ', 'Local Matriz', 'Av. Principal #100', '0999999999', 1)
 ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `activo` = 1;
@@ -33,27 +79,27 @@ INSERT INTO `bodegas` (`id_bodega`, `nombre`, `id_local`, `descripcion`, `activo
 (1, 'Bodega Principal Matriz', 1, 'Bodega central de almacenamiento', 1)
 ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `activo` = 1;
 
--- 3. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
+-- 6. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(4, '1712345673', 'Iralda', 'Manosalvas', 'iralda.manosalvas@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(4, '1712345673', 'Iralda', 'Manosalvas', 'iralda.manosalvas@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$nmSXX2QPkQbKO/s3qZ208eCl6E6AcpQrkms7Np7G4GApn8Npo0KpW', 0, 0, 0, 1)
+(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$VczsSmc97iJV7a9WeM58ZOIO5uS0Cm069aBwAK7H/GwI4HaZKGIBO', 0, 0, 0, 1)
 ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
 
--- 4. INSERTAR PRODUCTOS Y VARIANTES REALES
+-- 7. INSERTAR PRODUCTOS Y VARIANTES REALES
 INSERT INTO `productos` (`id_producto`, `id_categoria`, `id_tipo`, `id_marca`, `descripcion`, `detalle`, `activo`) VALUES
 (1, 3, 1, 1, 'COBERTOR|2 PLAZAS', 'COBERTOR|2 PLAZAS', 1)
 ON DUPLICATE KEY UPDATE `descripcion` = VALUES(`descripcion`), `id_categoria` = VALUES(`id_categoria`), `activo` = 1;
@@ -169,7 +215,172 @@ INSERT INTO `variantes_producto` (`id_variante`, `id_producto`, `codigo_interno`
 (19, 19, 'LF-COB-019', 'LF-COB-019', 1, 4, 1, 1, 1, 35.00, 15.00, 5, 1)
 ON DUPLICATE KEY UPDATE `precio_venta` = VALUES(`precio_venta`), `id_tamano` = VALUES(`id_tamano`), `activo` = 1;
 
--- 5. INSERTAR GASTOS HISTÓRICOS DEL LOCAL
+-- 8. INSERTAR PROVEEDOR GENERAL
+INSERT INTO `proveedores` (`id_proveedor`, `ruc_cedula`, `nombre`, `telefono`, `correo`, `direccion`, `activo`) VALUES
+(1, '1790012345001', 'Distribuidora Nacional de Blancos & Edredones', '0998877665', 'contacto@distribuidorablancos.ec', 'Quito, Ecuador', 1)
+ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `activo` = 1;
+
+-- 9. INSERTAR COMPRAS REALES DESDE EXCEL (39 REGISTROS)
+DELETE FROM `detalle_compras`;
+DELETE FROM `compras`;
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(1, 1, 1, 1, 'COM-2026-0001', '2026-06-01 10:00:00', 313.2, 46.98, 360.18, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(1, 4, 40, 9.00, 313.2, 46.98, 360.18);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(2, 1, 1, 1, 'COM-2026-0002', '2026-06-01 10:00:00', 91.3, 13.7, 105.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(2, 5, 10, 10.50, 91.3, 13.7, 105.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(3, 1, 1, 1, 'COM-2026-0003', '2026-06-01 10:00:00', 1238.26, 185.74, 1424.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(3, 1, 89, 16.00, 1238.26, 185.74, 1424.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(4, 1, 1, 1, 'COM-2026-0004', '2026-06-01 10:00:00', 250.43, 37.57, 288.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(4, 2, 16, 18.00, 250.43, 37.57, 288.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(5, 1, 1, 1, 'COM-2026-0005', '2026-06-06 10:00:00', 63.04, 9.46, 72.50, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(5, 3, 5, 14.50, 63.04, 9.46, 72.50);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(6, 1, 1, 1, 'COM-2026-0006', '2026-06-06 10:00:00', 156.6, 23.49, 180.09, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(6, 4, 20, 9.00, 156.6, 23.49, 180.09);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(7, 1, 1, 1, 'COM-2026-0007', '2026-06-11 10:00:00', 337.82, 50.68, 388.50, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(7, 5, 37, 10.50, 337.82, 50.68, 388.50);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(8, 1, 1, 1, 'COM-2026-0008', '2026-06-25 10:00:00', 434.78, 65.22, 500.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(8, 6, 50, 10.00, 434.78, 65.22, 500.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(9, 1, 1, 1, 'COM-2026-0009', '2026-06-25 10:00:00', 195.65, 29.35, 225.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(9, 7, 30, 7.50, 195.65, 29.35, 225.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(10, 1, 1, 1, 'COM-2026-0010', '2026-07-08 10:00:00', 269.57, 40.43, 310.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(10, 6, 31, 10.00, 269.57, 40.43, 310.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(11, 1, 1, 1, 'COM-2026-0011', '2026-07-08 10:00:00', 417.39, 62.61, 480.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(11, 1, 30, 16.00, 417.39, 62.61, 480.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(12, 1, 1, 1, 'COM-2026-0012', '2026-07-08 10:00:00', 453.91, 68.09, 522.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(12, 2, 29, 18.00, 453.91, 68.09, 522.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(13, 1, 1, 1, 'COM-2026-0013', '2026-07-16 10:00:00', 139.13, 20.87, 160.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(13, 1, 10, 16.00, 139.13, 20.87, 160.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(14, 1, 1, 1, 'COM-2026-0014', '2026-07-16 10:00:00', 217.39, 32.61, 250.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(14, 6, 25, 10.00, 217.39, 32.61, 250.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(15, 1, 1, 1, 'COM-2026-0015', '2026-07-24 10:00:00', 127.83, 19.17, 147.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(15, 2, 7, 21.00, 127.83, 19.17, 147.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(16, 1, 1, 1, 'COM-2026-0016', '2026-07-24 10:00:00', 278.26, 41.74, 320.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(16, 9, 20, 16.00, 278.26, 41.74, 320.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(17, 1, 1, 1, 'COM-2026-0017', '2026-07-24 10:00:00', 321.74, 48.26, 370.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(17, 10, 20, 18.50, 321.74, 48.26, 370.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(18, 1, 1, 1, 'COM-2026-0018', '2026-07-24 10:00:00', 109.57, 16.43, 126.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(18, 11, 6, 21.00, 109.57, 16.43, 126.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(19, 1, 1, 1, 'COM-2026-0019', '2026-07-27 10:00:00', 391.31, 58.69, 450.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(19, 12, 30, 15.00, 391.31, 58.69, 450.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(20, 1, 1, 1, 'COM-2026-0020', '2026-07-27 10:00:00', 83.48, 12.52, 96.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(20, 13, 8, 12.00, 83.48, 12.52, 96.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(21, 1, 1, 1, 'COM-2026-0021', '2026-07-24 10:00:00', 127.83, 19.17, 147.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(21, 8, 7, 21.00, 127.83, 19.17, 147.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(22, 1, 1, 1, 'COM-2026-0022', '2026-08-08 10:00:00', 62.64, 9.4, 72.04, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(22, 4, 8, 9.00, 62.64, 9.4, 72.04);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(23, 1, 1, 1, 'COM-2026-0023', '2026-08-08 10:00:00', 6.52, 0.98, 7.50, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(23, 7, 1, 7.50, 6.52, 0.98, 7.50);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(24, 1, 1, 1, 'COM-2026-0024', '2026-08-08 10:00:00', 65.22, 9.78, 75.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(24, 14, 50, 1.50, 65.22, 9.78, 75.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(25, 1, 1, 1, 'COM-2026-0025', '2026-08-12 10:00:00', 113.04, 16.96, 130.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(25, 6, 13, 10.00, 113.04, 16.96, 130.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(26, 1, 1, 1, 'COM-2026-0026', '2026-08-12 10:00:00', 28, 4.2, 32.20, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(26, 15, 1, 32.20, 28, 4.2, 32.20);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(27, 1, 1, 1, 'COM-2026-0027', '2026-08-12 10:00:00', 14.5, 2.18, 16.68, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(27, 3, 1, 16.68, 14.5, 2.18, 16.68);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(28, 1, 1, 1, 'COM-2026-0028', '2026-08-12 10:00:00', 20, 3, 23.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(28, 8, 1, 23.00, 20, 3, 23.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(29, 1, 1, 1, 'COM-2026-0029', '2026-08-12 10:00:00', 55.65, 8.35, 64.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(29, 16, 8, 8.00, 55.65, 8.35, 64.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(30, 1, 1, 1, 'COM-2026-0030', '2026-08-20 10:00:00', 69.57, 10.43, 80.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(30, 1, 5, 16.00, 69.57, 10.43, 80.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(31, 1, 1, 1, 'COM-2026-0031', '2026-08-20 10:00:00', 22.61, 3.39, 26.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(31, 17, 1, 26.00, 22.61, 3.39, 26.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(32, 1, 1, 1, 'COM-2026-0032', '2026-08-20 10:00:00', 1189.57, 178.43, 1368.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(32, 4, 152, 9.00, 1189.57, 178.43, 1368.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(33, 1, 1, 1, 'COM-2026-0033', '2026-08-26 10:00:00', 140.87, 21.13, 162.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(33, 4, 18, 9.00, 140.87, 21.13, 162.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(34, 1, 1, 1, 'COM-2026-0034', '2026-08-26 10:00:00', 78.26, 11.74, 90.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(34, 2, 5, 18.00, 78.26, 11.74, 90.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(35, 1, 1, 1, 'COM-2026-0035', '2026-08-26 10:00:00', 69.57, 10.43, 80.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(35, 1, 5, 16.00, 69.57, 10.43, 80.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(36, 1, 1, 1, 'COM-2026-0036', '2026-08-26 10:00:00', 130.43, 19.57, 150.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(36, 6, 15, 10.00, 130.43, 19.57, 150.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(37, 1, 1, 1, 'COM-2026-0037', '2026-08-26 10:00:00', 165.22, 24.78, 190.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(37, 18, 10, 19.00, 165.22, 24.78, 190.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(38, 1, 1, 1, 'COM-2026-0038', '2026-08-26 10:00:00', 18.26, 2.74, 21.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(38, 19, 1, 21.00, 18.26, 2.74, 21.00);
+INSERT INTO `compras` (`id_compra`, `id_proveedor`, `id_local`, `id_usuario`, `numero_compra`, `fecha`, `subtotal`, `iva`, `total`, `observaciones`, `estado`) VALUES
+(39, 1, 1, 1, 'COM-2026-0039', '2026-08-26 10:00:00', 195.65, 29.35, 225.00, 'Compra registrada desde consolidado Excel', 'REGISTRADA');
+INSERT INTO `detalle_compras` (`id_compra`, `id_variante`, `cantidad`, `precio_unitario`, `subtotal`, `iva`, `total`) VALUES
+(39, 12, 15, 15.00, 195.65, 29.35, 225.00);
+
+-- 10. INSERTAR GASTOS HISTÓRICOS DEL LOCAL
 DELETE FROM `gastos`;
 INSERT INTO `gastos` (`fecha`, `categoria`, `descripcion`, `monto`, `id_local`, `id_usuario`, `beneficiario`, `activo`) VALUES
 ('2026-06-01', 'FIJO', 'Servicio de Luz Local Matriz (Junio)', 22.00, 1, 1, 'Empresa Eléctrica', 1);
@@ -208,7 +419,7 @@ INSERT INTO `gastos` (`fecha`, `categoria`, `descripcion`, `monto`, `id_local`, 
 INSERT INTO `gastos` (`fecha`, `categoria`, `descripcion`, `monto`, `id_local`, `id_usuario`, `beneficiario`, `activo`) VALUES
 ('2026-07-10', 'OPERATIVO', 'Impresión de talonarios de notas de venta y entrega', 16.00, 1, 1, 'Imprenta', 1);
 
--- 6. INSERTAR MOVIMIENTOS DE COMPRA E INVENTARIO INICIAL
+-- 11. CALCULAR Y ASIGNAR STOCK DE INVENTARIO INICIAL (COMPRAS - VENTAS)
 DELETE FROM `stock_producto`;
 INSERT INTO `stock_producto` (`id_variante`, `id_bodega`, `cantidad`, `fecha_actualizacion`) VALUES
 (1, 1, 54, NOW())
@@ -268,7 +479,7 @@ INSERT INTO `stock_producto` (`id_variante`, `id_bodega`, `cantidad`, `fecha_act
 (19, 1, 1, NOW())
 ON DUPLICATE KEY UPDATE `cantidad` = VALUES(`cantidad`);
 
--- 7. INSERTAR VENTAS HISTÓRICAS CON DETALLE Y PAGOS
+-- 12. INSERTAR VENTAS HISTÓRICAS CON DETALLE Y PAGOS
 DELETE FROM `pagos_venta`;
 DELETE FROM `detalle_ventas`;
 DELETE FROM `ventas`;

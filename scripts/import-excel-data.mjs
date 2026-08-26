@@ -1,8 +1,6 @@
 import xlsx from "xlsx";
 import bcrypt from "bcryptjs";
 import { writeFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
-import mysql from "mysql2/promise";
 
 const excelPath = "C:\\Users\\german.cajas\\Downloads\\VENTAS_LOCAL_EDREDONES_Y_SABANAS_CONSOLIDADO_FINAL.xlsx";
 
@@ -88,7 +86,7 @@ for (let i = 2; i < rawCompras.length; i++) {
   const cant = parseInt(row[4]) || 0;
   const precioUnit = parseFloat(row[7]?.toString().replace("$", "").replace(",", ".").trim()) || 0;
   const totalCompra = parseFloat(row[8]?.toString().replace("$", "").replace(",", ".").trim()) || (cant * precioUnit);
-  const proveedor = row[9]?.toString().trim() || "Proveedor General";
+  const proveedor = row[9]?.toString().trim() || "Distribuidora Nacional de Blancos";
 
   if (cant > 0 && idProd) {
     purchasesList.push({ fecha, idProd, cant, precioUnit, totalCompra, proveedor });
@@ -169,7 +167,53 @@ let sql = `-- ==================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. ASEGURAR TABLA GASTOS
+-- 1. ASEGURAR TABLA PROVEEDORES
+CREATE TABLE IF NOT EXISTS \`proveedores\` (
+  \`id_proveedor\` INT AUTO_INCREMENT PRIMARY KEY,
+  \`ruc_cedula\` VARCHAR(20) NOT NULL UNIQUE,
+  \`nombre\` VARCHAR(150) NOT NULL,
+  \`telefono\` VARCHAR(50) NULL,
+  \`correo\` VARCHAR(120) NULL,
+  \`direccion\` VARCHAR(255) NULL,
+  \`activo\` TINYINT(1) NOT NULL DEFAULT 1,
+  \`fecha_creacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. ASEGURAR TABLA COMPRAS
+CREATE TABLE IF NOT EXISTS \`compras\` (
+  \`id_compra\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  \`id_proveedor\` INT NOT NULL,
+  \`id_local\` INT NOT NULL,
+  \`id_usuario\` BIGINT NOT NULL,
+  \`numero_compra\` VARCHAR(50) NOT NULL UNIQUE,
+  \`fecha\` DATETIME NOT NULL,
+  \`subtotal\` DECIMAL(12,2) NOT NULL,
+  \`iva\` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  \`total\` DECIMAL(12,2) NOT NULL,
+  \`observaciones\` TEXT NULL,
+  \`estado\` VARCHAR(20) NOT NULL DEFAULT 'REGISTRADA',
+  \`fecha_creacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT \`fk_compras_proveedor\` FOREIGN KEY (\`id_proveedor\`) REFERENCES \`proveedores\` (\`id_proveedor\`),
+  CONSTRAINT \`fk_compras_local\` FOREIGN KEY (\`id_local\`) REFERENCES \`locales\` (\`id_local\`),
+  CONSTRAINT \`fk_compras_usuario\` FOREIGN KEY (\`id_usuario\`) REFERENCES \`usuarios\` (\`id_usuario\`),
+  INDEX \`idx_compras_fecha\` (\`fecha\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. ASEGURAR TABLA DETALLE COMPRAS
+CREATE TABLE IF NOT EXISTS \`detalle_compras\` (
+  \`id_detalle_compra\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  \`id_compra\` BIGINT NOT NULL,
+  \`id_variante\` BIGINT NOT NULL,
+  \`cantidad\` INT NOT NULL,
+  \`precio_unitario\` DECIMAL(12,2) NOT NULL,
+  \`subtotal\` DECIMAL(12,2) NOT NULL,
+  \`iva\` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  \`total\` DECIMAL(12,2) NOT NULL,
+  CONSTRAINT \`fk_detalle_compras_compra\` FOREIGN KEY (\`id_compra\`) REFERENCES \`compras\` (\`id_compra\`) ON DELETE CASCADE,
+  CONSTRAINT \`fk_detalle_compras_variante\` FOREIGN KEY (\`id_variante\`) REFERENCES \`variantes_producto\` (\`id_variante\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. ASEGURAR TABLA GASTOS
 CREATE TABLE IF NOT EXISTS \`gastos\` (
   \`id_gasto\` BIGINT AUTO_INCREMENT PRIMARY KEY,
   \`fecha\` DATE NOT NULL,
@@ -188,7 +232,7 @@ CREATE TABLE IF NOT EXISTS \`gastos\` (
   INDEX \`idx_gastos_categoria\` (\`categoria\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 2. ASEGURAR LOCAL Y BODEGA MATRIZ
+-- 5. ASEGURAR LOCAL Y BODEGA MATRIZ
 INSERT INTO \`locales\` (\`id_local\`, \`codigo\`, \`nombre\`, \`direccion\`, \`telefono\`, \`activo\`) VALUES
 (1, 'MATRIZ', 'Local Matriz', 'Av. Principal #100', '0999999999', 1)
 ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`activo\` = 1;
@@ -197,7 +241,7 @@ INSERT INTO \`bodegas\` (\`id_bodega\`, \`nombre\`, \`id_local\`, \`descripcion\
 (1, 'Bodega Principal Matriz', 1, 'Bodega central de almacenamiento', 1)
 ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`activo\` = 1;
 
--- 3. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
+-- 6. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
 `;
 
 advisors.forEach((adv, idx) => {
@@ -232,12 +276,12 @@ const tamanoMapping = {
   "ESTÁNDAR": 6
 };
 
-sql += `\n-- 4. INSERTAR PRODUCTOS Y VARIANTES REALES\n`;
+sql += `\n-- 7. INSERTAR PRODUCTOS Y VARIANTES REALES\n`;
 
 let prodIdx = 1;
 const variantCodeToId = new Map();
 
-for (const [key, p] of productsMap.entries()) {
+for (const [, p] of productsMap.entries()) {
   const catId = catMapping[p.tipo.toUpperCase()] || 1;
   const tamanoId = tamanoMapping[p.descripcion.toUpperCase().trim()] || 3;
   const descSafe = p.idProducto.replace(/'/g, "\\'");
@@ -255,8 +299,33 @@ ON DUPLICATE KEY UPDATE \`precio_venta\` = VALUES(\`precio_venta\`), \`id_tamano
   prodIdx++;
 }
 
-// 5. Insertar Gastos
-sql += `\n-- 5. INSERTAR GASTOS HISTÓRICOS DEL LOCAL\n`;
+// 8. Insertar Proveedor General
+sql += `\n-- 8. INSERTAR PROVEEDOR GENERAL\n`;
+sql += `INSERT INTO \`proveedores\` (\`id_proveedor\`, \`ruc_cedula\`, \`nombre\`, \`telefono\`, \`correo\`, \`direccion\`, \`activo\`) VALUES
+(1, '1790012345001', 'Distribuidora Nacional de Blancos & Edredones', '0998877665', 'contacto@distribuidorablancos.ec', 'Quito, Ecuador', 1)
+ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`activo\` = 1;\n`;
+
+// 9. Insertar Compras Históricas Reales (39 Registros)
+sql += `\n-- 9. INSERTAR COMPRAS REALES DESDE EXCEL (39 REGISTROS)\n`;
+sql += `DELETE FROM \`detalle_compras\`;\n`;
+sql += `DELETE FROM \`compras\`;\n`;
+
+purchasesList.forEach((pur, idx) => {
+  const compraId = idx + 1;
+  const numCompra = `COM-2026-${compraId.toString().padStart(4, "0")}`;
+  const varId = variantCodeToId.get(pur.idProd) || 1;
+  const subtotal = Number((pur.totalCompra / 1.15).toFixed(2));
+  const iva = Number((pur.totalCompra - subtotal).toFixed(2));
+
+  sql += `INSERT INTO \`compras\` (\`id_compra\`, \`id_proveedor\`, \`id_local\`, \`id_usuario\`, \`numero_compra\`, \`fecha\`, \`subtotal\`, \`iva\`, \`total\`, \`observaciones\`, \`estado\`) VALUES
+(${compraId}, 1, 1, 1, '${numCompra}', '${pur.fecha} 10:00:00', ${subtotal}, ${iva}, ${pur.totalCompra.toFixed(2)}, 'Compra registrada desde consolidado Excel', 'REGISTRADA');\n`;
+
+  sql += `INSERT INTO \`detalle_compras\` (\`id_compra\`, \`id_variante\`, \`cantidad\`, \`precio_unitario\`, \`subtotal\`, \`iva\`, \`total\`) VALUES
+(${compraId}, ${varId}, ${pur.cant}, ${pur.precioUnit.toFixed(2)}, ${subtotal}, ${iva}, ${pur.totalCompra.toFixed(2)});\n`;
+});
+
+// 10. Insertar Gastos
+sql += `\n-- 10. INSERTAR GASTOS HISTÓRICOS DEL LOCAL\n`;
 sql += `DELETE FROM \`gastos\`;\n`;
 gastosList.forEach((g) => {
   const desc = g.descripcion.replace(/'/g, "\\'");
@@ -265,11 +334,10 @@ gastosList.forEach((g) => {
 ('${g.fecha}', '${g.categoria}', '${desc}', ${g.monto.toFixed(2)}, 1, 1, '${ben}', 1);\n`;
 });
 
-// 6. Insertar Compras e Inventario Inicial
-sql += `\n-- 6. INSERTAR MOVIMIENTOS DE COMPRA E INVENTARIO INICIAL\n`;
+// 11. Calcular y Asignar Stock de Inventario
+sql += `\n-- 11. CALCULAR Y ASIGNAR STOCK DE INVENTARIO INICIAL (COMPRAS - VENTAS)\n`;
 sql += `DELETE FROM \`stock_producto\`;\n`;
 
-// Calculate total purchases and sales by variant to set current stock
 const variantPurchases = new Map();
 const variantSales = new Map();
 
@@ -297,8 +365,8 @@ for (let vId = 1; vId < prodIdx; vId++) {
 ON DUPLICATE KEY UPDATE \`cantidad\` = VALUES(\`cantidad\`);\n`;
 }
 
-// 7. Insertar Ventas Históricas
-sql += `\n-- 7. INSERTAR VENTAS HISTÓRICAS CON DETALLE Y PAGOS\n`;
+// 12. Insertar Ventas Históricas
+sql += `\n-- 12. INSERTAR VENTAS HISTÓRICAS CON DETALLE Y PAGOS\n`;
 sql += `DELETE FROM \`pagos_venta\`;\n`;
 sql += `DELETE FROM \`detalle_ventas\`;\n`;
 sql += `DELETE FROM \`ventas\`;\n`;
