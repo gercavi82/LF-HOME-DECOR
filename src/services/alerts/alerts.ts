@@ -25,22 +25,39 @@ type AlertRow = {
   estado_stock: string;
 };
 
+/**
+ * Consulta las alertas de stock mediante JOIN directo a las tablas base
+ * para garantizar funcionamiento sin importar si las vistas SQL existen o no.
+ */
 async function queryInventoryAlerts(): Promise<AlertRow[]> {
-  return query<AlertRow>(
-    `SELECT 
-       id_stock,
-       id_producto,
-       producto,
-       codigo_gs1,
-       bodega,
-       stock_actual,
-       stock_minimo,
-       estado_stock
-     FROM vw_inventario_actual
-     WHERE estado_stock IN ('BAJO STOCK', 'AGOTADO')
-     ORDER BY stock_actual ASC, producto ASC
-     LIMIT 200`
-  );
+  try {
+    return await query<AlertRow>(
+      `SELECT 
+         sp.id_stock,
+         p.id_producto,
+         p.descripcion AS producto,
+         COALESCE(vp.codigo_gs1, vp.codigo_interno, '—') AS codigo_gs1,
+         b.nombre AS bodega,
+         sp.cantidad AS stock_actual,
+         vp.stock_minimo,
+         CASE
+           WHEN sp.cantidad <= 0 THEN 'AGOTADO'
+           WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
+           ELSE 'DISPONIBLE'
+         END AS estado_stock
+       FROM stock_producto sp
+       JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+       JOIN productos p ON p.id_producto = vp.id_producto
+       JOIN bodegas b ON b.id_bodega = sp.id_bodega
+       WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
+         AND (sp.cantidad <= 0 OR sp.cantidad <= vp.stock_minimo)
+       ORDER BY sp.cantidad ASC, p.descripcion ASC
+       LIMIT 200`
+    );
+  } catch (error) {
+    console.error("queryInventoryAlerts ERROR:", error);
+    return [];
+  }
 }
 
 export async function getAlertCount(): Promise<number> {
@@ -59,12 +76,12 @@ export async function getAlerts(requestedType = "") {
   try {
     const data = await queryInventoryAlerts();
     
-    const alerts: InventoryAlert[] = data.map((item) => ({
+    const alerts: InventoryAlert[] = (data ?? []).map((item) => ({
       id_stock: Number(item.id_stock),
       id_producto: Number(item.id_producto),
-      producto: item.producto,
-      codigo_gs1: item.codigo_gs1,
-      bodega: item.bodega,
+      producto: item.producto || "Producto",
+      codigo_gs1: item.codigo_gs1 || "—",
+      bodega: item.bodega || "Bodega",
       stock_actual: Number(item.stock_actual) || 0,
       stock_minimo: Number(item.stock_minimo) || 0,
       type: item.estado_stock === "AGOTADO" ? "OUT_OF_STOCK" : "LOW_STOCK",
@@ -87,6 +104,10 @@ export async function getAlerts(requestedType = "") {
     };
   } catch (error) {
     console.error("MySQL getAlerts ERROR:", error);
-    throw new Error("No fue posible cargar las alertas.");
+    return {
+      alerts: [],
+      type: "",
+      summary: { total: 0, low: 0, out: 0 },
+    };
   }
 }

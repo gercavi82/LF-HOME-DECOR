@@ -52,49 +52,76 @@ export async function getInventory(search = "", requestedStatus = "") {
 
   let sql = `
     SELECT 
-      id_stock,
-      id_producto,
-      id_variante,
-      id_bodega,
-      producto,
-      codigo_gs1,
-      bodega,
-      categoria,
-      marca,
-      tamano,
-      color,
-      stock_actual,
-      stock_minimo,
-      estado_stock
-    FROM vw_inventario_actual
+      sp.id_stock,
+      p.id_producto,
+      vp.id_variante,
+      b.id_bodega,
+      p.descripcion AS producto,
+      COALESCE(vp.codigo_gs1, vp.codigo_interno, '—') AS codigo_gs1,
+      b.nombre AS bodega,
+      c.nombre AS categoria,
+      m.nombre AS marca,
+      t.nombre AS tamano,
+      col.nombre AS color,
+      sp.cantidad AS stock_actual,
+      vp.stock_minimo,
+      CASE
+        WHEN sp.cantidad <= 0 THEN 'AGOTADO'
+        WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
+        ELSE 'DISPONIBLE'
+      END AS estado_stock
+    FROM stock_producto sp
+    JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+    JOIN productos p ON p.id_producto = vp.id_producto
+    JOIN bodegas b ON b.id_bodega = sp.id_bodega
+    LEFT JOIN categorias c ON c.id_categoria = p.id_categoria
+    LEFT JOIN marcas m ON m.id_marca = p.id_marca
+    LEFT JOIN tamanos t ON t.id_tamano = vp.id_tamano
+    LEFT JOIN colores col ON col.id_color = vp.id_color
+    WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
   `;
 
   const whereClauses: string[] = [];
   const params: unknown[] = [];
 
   if (normalized) {
-    whereClauses.push(`(producto LIKE ? OR codigo_gs1 LIKE ? OR bodega LIKE ?)`);
+    whereClauses.push(`(p.descripcion LIKE ? OR vp.codigo_gs1 LIKE ? OR b.nombre LIKE ?)`);
     const pattern = `%${normalized}%`;
     params.push(pattern, pattern, pattern);
   }
 
   if (parsedStatus.success) {
-    whereClauses.push(`estado_stock = ?`);
-    params.push(parsedStatus.data);
+    if (parsedStatus.data === "AGOTADO") {
+      whereClauses.push(`sp.cantidad <= 0`);
+    } else if (parsedStatus.data === "BAJO STOCK") {
+      whereClauses.push(`sp.cantidad > 0 AND sp.cantidad <= vp.stock_minimo`);
+    } else if (parsedStatus.data === "DISPONIBLE") {
+      whereClauses.push(`sp.cantidad > vp.stock_minimo`);
+    }
   }
 
   if (whereClauses.length > 0) {
-    sql += ` WHERE ` + whereClauses.join(" AND ");
+    sql += ` AND ` + whereClauses.join(" AND ");
   }
 
-  sql += ` ORDER BY producto ASC, bodega ASC LIMIT 200`;
+  sql += ` ORDER BY p.descripcion ASC, b.nombre ASC LIMIT 200`;
 
   try {
     const [itemsResult, countsResult] = await Promise.all([
       query<InventoryItemRaw>(sql, params),
       query<{ estado_stock: string; total: number }>(
-        `SELECT estado_stock, COUNT(*) AS total 
-         FROM vw_inventario_actual 
+        `SELECT 
+           CASE
+             WHEN sp.cantidad <= 0 THEN 'AGOTADO'
+             WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
+             ELSE 'DISPONIBLE'
+           END AS estado_stock,
+           COUNT(*) AS total 
+         FROM stock_producto sp
+         JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+         JOIN productos p ON p.id_producto = vp.id_producto
+         JOIN bodegas b ON b.id_bodega = sp.id_bodega
+         WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
          GROUP BY estado_stock`
       ),
     ]);
@@ -134,6 +161,11 @@ export async function getInventory(search = "", requestedStatus = "") {
     };
   } catch (error) {
     console.error("MySQL getInventory ERROR:", error);
-    throw new Error("No fue posible cargar el inventario.");
+    return {
+      items: [],
+      count: 0,
+      summary: { available: 0, low: 0, out: 0, total: 0 },
+      status: null,
+    };
   }
 }

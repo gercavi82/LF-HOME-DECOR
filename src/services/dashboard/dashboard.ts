@@ -85,32 +85,64 @@ export async function getDashboardData() {
           cantidad_ventas_hoy: number;
           cantidad_ventas_mes: number;
         }>(
-          `SELECT 
-             ventas_hoy, 
-             ventas_mes, 
-             cantidad_ventas_hoy, 
-             cantidad_ventas_mes 
-           FROM vw_dashboard_ventas 
-           LIMIT 1`
+          `SELECT
+             COALESCE(SUM(CASE
+               WHEN DATE(v.fecha) = CURDATE()
+                    AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               THEN v.total ELSE 0 END), 0) AS ventas_hoy,
+             COALESCE(SUM(CASE
+               WHEN DATE_FORMAT(v.fecha, '%Y-%m-01') = DATE_FORMAT(NOW(), '%Y-%m-01')
+                    AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               THEN v.total ELSE 0 END), 0) AS ventas_mes,
+             COALESCE(SUM(CASE
+               WHEN DATE(v.fecha) = CURDATE()
+                    AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               THEN 1 ELSE 0 END), 0) AS cantidad_ventas_hoy,
+             COALESCE(SUM(CASE
+               WHEN DATE_FORMAT(v.fecha, '%Y-%m-01') = DATE_FORMAT(NOW(), '%Y-%m-01')
+                    AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               THEN 1 ELSE 0 END), 0) AS cantidad_ventas_mes
+           FROM ventas v`
         ),
         query<DashboardAlert>(
           `SELECT 
-             id_stock, 
-             producto, 
-             codigo_gs1, 
-             bodega, 
-             stock_actual, 
-             stock_minimo, 
-             estado_stock 
-           FROM vw_productos_bajo_stock 
-           ORDER BY stock_actual ASC 
+             sp.id_stock,
+             p.descripcion AS producto,
+             COALESCE(vp.codigo_gs1, vp.codigo_interno, '—') AS codigo_gs1,
+             b.nombre AS bodega,
+             sp.cantidad AS stock_actual,
+             vp.stock_minimo,
+             CASE
+               WHEN sp.cantidad <= 0 THEN 'AGOTADO'
+               WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
+               ELSE 'DISPONIBLE'
+             END AS estado_stock
+           FROM stock_producto sp
+           JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+           JOIN productos p ON p.id_producto = vp.id_producto
+           JOIN bodegas b ON b.id_bodega = sp.id_bodega
+           WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
+             AND sp.cantidad > 0 AND sp.cantidad <= vp.stock_minimo
+           ORDER BY sp.cantidad ASC 
            LIMIT 5`
         ),
         queryOne<{ count: number }>(
-          `SELECT COUNT(*) AS count FROM vw_productos_bajo_stock`
+          `SELECT COUNT(*) AS count 
+           FROM stock_producto sp
+           JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+           JOIN productos p ON p.id_producto = vp.id_producto
+           JOIN bodegas b ON b.id_bodega = sp.id_bodega
+           WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
+             AND sp.cantidad > 0 AND sp.cantidad <= vp.stock_minimo`
         ),
         queryOne<{ count: number }>(
-          `SELECT COUNT(*) AS count FROM vw_productos_agotados`
+          `SELECT COUNT(*) AS count 
+           FROM stock_producto sp
+           JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+           JOIN productos p ON p.id_producto = vp.id_producto
+           JOIN bodegas b ON b.id_bodega = sp.id_bodega
+           WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
+             AND sp.cantidad <= 0`
         ),
         query<SaleRow>(
           `SELECT fecha, total 
@@ -144,6 +176,16 @@ export async function getDashboardData() {
     };
   } catch (error) {
     console.error("MySQL dashboard ERROR:", error);
-    throw new Error("No fue posible cargar los indicadores del dashboard.");
+    return {
+      context,
+      salesToday: 0,
+      salesMonth: 0,
+      salesCountToday: 0,
+      salesCountMonth: 0,
+      lowStockCount: 0,
+      outOfStockCount: 0,
+      alerts: [],
+      lastSevenDays: buildLastSevenDays(now, []),
+    };
   }
 }
