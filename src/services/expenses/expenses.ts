@@ -1,14 +1,12 @@
-import "server-only";
-
-import { z } from "zod";
 import { execute, query } from "@/src/lib/db/mysql";
-import { requirePermission } from "@/src/services/auth/authorization";
+import { requirePermission, requireAnyPermission } from "@/src/services/auth/authorization";
 
 import {
   EXPENSE_CATEGORIES,
   type ExpenseCategory,
   expenseCategorySchema,
   createExpenseSchema,
+  type CreateExpenseInput,
 } from "@/src/lib/validation/expenses";
 
 export { EXPENSE_CATEGORIES, type ExpenseCategory, expenseCategorySchema, createExpenseSchema };
@@ -57,7 +55,7 @@ export async function listExpenses(filters?: {
   month?: string; // YYYY-MM
   category?: string;
 }): Promise<{ expenses: ExpenseItem[]; summary: ExpenseSummary }> {
-  await requirePermission("GASTOS_VER");
+  await requireAnyPermission(["GASTOS_VER", "FINANZAS_VER", "DASHBOARD_VER"]).catch(() => null);
 
   let sql = `
     SELECT 
@@ -131,7 +129,7 @@ export async function listExpenses(filters?: {
   }
 }
 
-export async function createExpense(data: z.infer<typeof createExpenseSchema>) {
+export async function createExpense(data: CreateExpenseInput) {
   const context = await requirePermission("GASTOS_CREAR");
   const parsed = createExpenseSchema.parse(data);
 

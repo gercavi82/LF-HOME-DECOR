@@ -141,14 +141,39 @@ export async function requireAuthContext(): Promise<AuthContext> {
 
 /**
  * Exige que el usuario tenga un permiso específico asignado.
- * No hardcodea nombres de perfil; valida estrictamente contra perfil_permisos.
+ * Administrador (id_perfil = 1) tiene acceso universal.
  * Si no tiene el permiso, redirige a /sin-permiso.
  */
 export async function requirePermission(permissionCode: string): Promise<AuthContext> {
   const context = await requireAuth();
 
+  if (context.id_perfil === 1 || context.perfil === ROLE_NAMES.ADMINISTRADOR) {
+    return context;
+  }
+
   const isAllowed = context.permisos.some(
     (permission) => permission.codigo === permissionCode
+  );
+
+  if (!isAllowed) {
+    redirect("/sin-permiso");
+  }
+
+  return context;
+}
+
+/**
+ * Exige que el usuario tenga al menos uno de los permisos dados.
+ */
+export async function requireAnyPermission(permissionCodes: string[]): Promise<AuthContext> {
+  const context = await requireAuth();
+
+  if (context.id_perfil === 1 || context.perfil === ROLE_NAMES.ADMINISTRADOR) {
+    return context;
+  }
+
+  const isAllowed = context.permisos.some((permission) =>
+    permissionCodes.includes(permission.codigo)
   );
 
   if (!isAllowed) {
