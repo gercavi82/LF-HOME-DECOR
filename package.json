@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed:admin": "node scripts/seed-admin.mjs",
-    "test:verify": "node scripts/verify-all.mjs"
+    "test:verify": "node scripts/verify-all.mjs",
+    "db:test": "node scripts/test-db-connection.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

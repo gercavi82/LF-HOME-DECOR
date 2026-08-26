@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import mysql, {
   type Pool,
   type PoolConnection,
@@ -10,7 +12,46 @@ import mysql, {
 
 let pool: Pool | null = null;
 
+/**
+ * Fallback para cargar variables de entorno desde .env, .env.production o .env.local
+ * en entornos de hosting (como cPanel / CloudLinux Passenger) donde el proceso Node
+ * pueda no heredar automáticamente las variables de entorno configuradas.
+ */
+function loadEnvFallback() {
+  if (process.env.DB_USER && process.env.DB_NAME) {
+    return;
+  }
+
+  const envFiles = [".env.production", ".env.local", ".env"];
+  for (const file of envFiles) {
+    try {
+      const fullPath = resolve(process.cwd(), file);
+      if (existsSync(fullPath)) {
+        const content = readFileSync(fullPath, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const [key, ...rest] = trimmed.split("=");
+          if (key && rest.length > 0) {
+            const cleanKey = key.trim();
+            const val = rest.join("=").trim().replace(/^["']|["']$/g, "");
+            if (!process.env[cleanKey]) {
+              process.env[cleanKey] = val;
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignorar fallos de lectura de archivos locales
+    }
+  }
+}
+
+loadEnvFallback();
+
 function getPoolConfig(): PoolOptions {
+  loadEnvFallback();
+
   const host = process.env.DB_HOST || "localhost";
   const port = Number(process.env.DB_PORT || "3306");
   const user = process.env.DB_USER || "root";
@@ -31,6 +72,7 @@ function getPoolConfig(): PoolOptions {
     supportBigNumbers: true,
     bigNumberStrings: false,
     dateStrings: false,
+    connectTimeout: 10000,
   };
 }
 
@@ -52,8 +94,22 @@ export async function query<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = []
 ): Promise<T[]> {
-  const [rows] = await getPool().execute<RowDataPacket[]>(sql, params as (string | number | boolean | null | Date)[]);
-  return rows as unknown as T[];
+  try {
+    const [rows] = await getPool().execute<RowDataPacket[]>(
+      sql,
+      params as (string | number | boolean | null | Date)[]
+    );
+    return rows as unknown as T[];
+  } catch (error) {
+    console.error("MySQL query ERROR:", {
+      message: error instanceof Error ? error.message : String(error),
+      host: process.env.DB_HOST || "localhost",
+      database: process.env.DB_NAME || "lf_home_decor",
+      user: process.env.DB_USER || "root",
+      sql: sql.slice(0, 100),
+    });
+    throw error;
+  }
 }
 
 /**
@@ -76,8 +132,22 @@ export async function execute(
   sql: string,
   params: unknown[] = []
 ): Promise<ResultSetHeader> {
-  const [result] = await getPool().execute<ResultSetHeader>(sql, params as (string | number | boolean | null | Date)[]);
-  return result;
+  try {
+    const [result] = await getPool().execute<ResultSetHeader>(
+      sql,
+      params as (string | number | boolean | null | Date)[]
+    );
+    return result;
+  } catch (error) {
+    console.error("MySQL execute ERROR:", {
+      message: error instanceof Error ? error.message : String(error),
+      host: process.env.DB_HOST || "localhost",
+      database: process.env.DB_NAME || "lf_home_decor",
+      user: process.env.DB_USER || "root",
+      sql: sql.slice(0, 100),
+    });
+    throw error;
+  }
 }
 
 /**
