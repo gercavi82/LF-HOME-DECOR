@@ -9,20 +9,21 @@ import { requirePermission } from "@/src/services/auth/authorization";
 export const productIdSchema = z.coerce.number().int().positive();
 
 export const productSchema = z.object({
-  id_categoria: z.coerce.number().int().positive(),
-  id_tipo: z.coerce.number().int().positive(),
-  id_marca: z.coerce.number().int().positive(),
-  id_material: z.coerce.number().int().positive(),
-  id_tamano: z.coerce.number().int().positive(),
-  id_color: z.coerce.number().int().positive(),
-  id_diseno: z.coerce.number().int().positive(),
-  id_unidad: z.coerce.number().int().positive(),
-  descripcion: z.string().trim().min(3).max(255),
+  id_categoria: z.coerce.number().int().positive("Seleccione una categoría"),
+  id_tipo: z.coerce.number().int().positive("Seleccione un tipo"),
+  id_marca: z.coerce.number().int().positive("Seleccione una marca"),
+  id_material: z.coerce.number().int().positive("Seleccione un material"),
+  id_tamano: z.coerce.number().int().positive("Seleccione un tamaño"),
+  id_color: z.coerce.number().int().positive().default(1),
+  id_diseno: z.coerce.number().int().positive().default(1),
+  id_unidad: z.coerce.number().int().positive().default(1),
+  descripcion: z.string().trim().max(255).optional().nullable(),
   detalle: z.string().trim().max(1000).optional().nullable(),
   codigo_gs1: z.string().trim().max(50).optional().nullable(),
-  precio_venta: z.coerce.number().min(0),
+  precio_venta: z.coerce.number().min(0, "El precio debe ser positivo"),
   porcentaje_iva: z.coerce.number().min(0).max(100),
   stock_minimo: z.coerce.number().int().min(0),
+  cantidad_inicial: z.coerce.number().min(0).optional().default(0),
 });
 
 export type ProductInput = z.infer<typeof productSchema>;
@@ -308,6 +309,21 @@ export async function createProduct(input: ProductInput, image?: File | null): P
   const parsed = productSchema.parse(input);
 
   return transaction(async (conn) => {
+    // Generar descripción automática si no se especificó
+    let finalDesc = parsed.descripcion?.trim();
+    if (!finalDesc) {
+      const [names] = await conn.execute<RowDataPacket[]>(
+        `SELECT 
+           (SELECT nombre FROM categorias WHERE id_categoria = ?) AS cat_name,
+           (SELECT nombre FROM tipos_producto WHERE id_tipo = ?) AS tipo_name,
+           (SELECT nombre FROM tamanos WHERE id_tamano = ?) AS tamano_name`,
+        [parsed.id_categoria, parsed.id_tipo, parsed.id_tamano]
+      );
+      const row = names?.[0] as { cat_name?: string; tipo_name?: string; tamano_name?: string };
+      const parts = [row?.tipo_name || row?.cat_name || "Producto", row?.tamano_name].filter(Boolean);
+      finalDesc = parts.join(" ");
+    }
+
     // 1. Insertar producto
     const [prodRes] = await conn.execute<ResultSetHeader>(
       `INSERT INTO productos (
@@ -324,7 +340,7 @@ export async function createProduct(input: ProductInput, image?: File | null): P
         parsed.id_categoria,
         parsed.id_tipo,
         parsed.id_marca,
-        parsed.descripcion,
+        finalDesc,
         parsed.detalle || null,
         context.id_usuario,
       ]
@@ -376,15 +392,25 @@ export async function createProduct(input: ProductInput, image?: File | null): P
           parsed.codigo_gs1 || null,
           parsed.id_material,
           parsed.id_tamano,
-          parsed.id_color,
-          parsed.id_diseno,
-          parsed.id_unidad,
+          parsed.id_color || 1,
+          parsed.id_diseno || 1,
+          parsed.id_unidad || 1,
           parsed.precio_venta,
           parsed.porcentaje_iva,
           parsed.stock_minimo,
           imageUrl,
         ]
       );
+
+      // 5. Stock inicial en bodega si se especificó
+      if (parsed.cantidad_inicial && parsed.cantidad_inicial > 0) {
+        await conn.execute(
+          `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
+           VALUES ((SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1), 1, ?, NOW())
+           ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)`,
+          [productId, parsed.cantidad_inicial]
+        );
+      }
     } catch (error: unknown) {
       if (imageUrl) await deleteLocalImage(imageUrl);
       const err = error as { code?: string };
@@ -412,6 +438,20 @@ export async function updateProduct(id: number, input: ProductInput, image?: Fil
   }
 
   await transaction(async (conn) => {
+    let finalDesc = parsed.descripcion?.trim();
+    if (!finalDesc) {
+      const [names] = await conn.execute<RowDataPacket[]>(
+        `SELECT 
+           (SELECT nombre FROM categorias WHERE id_categoria = ?) AS cat_name,
+           (SELECT nombre FROM tipos_producto WHERE id_tipo = ?) AS tipo_name,
+           (SELECT nombre FROM tamanos WHERE id_tamano = ?) AS tamano_name`,
+        [parsed.id_categoria, parsed.id_tipo, parsed.id_tamano]
+      );
+      const row = names?.[0] as { cat_name?: string; tipo_name?: string; tamano_name?: string };
+      const parts = [row?.tipo_name || row?.cat_name || "Producto", row?.tamano_name].filter(Boolean);
+      finalDesc = parts.join(" ");
+    }
+
     // 1. Actualizar producto
     await conn.execute(
       `UPDATE productos 
@@ -426,7 +466,7 @@ export async function updateProduct(id: number, input: ProductInput, image?: Fil
         parsed.id_categoria,
         parsed.id_tipo,
         parsed.id_marca,
-        parsed.descripcion,
+        finalDesc,
         parsed.detalle || null,
         parsedId,
       ]
