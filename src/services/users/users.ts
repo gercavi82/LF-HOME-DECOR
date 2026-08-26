@@ -1,15 +1,13 @@
 import "server-only";
 
 import { z } from "zod";
-
-import { createAdminClient } from "@/src/lib/supabase/admin";
+import { query, queryOne } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
 
 const userIdSchema = z.coerce.number().int().positive();
 
 export type UserListItem = {
   id_usuario: number;
-  auth_user_id: string | null;
   cedula: string;
   nombres: string;
   apellidos: string;
@@ -40,66 +38,73 @@ function normalizeSearch(search: string) {
 }
 
 export async function getUserCatalogs(): Promise<UserCatalogs> {
-  const admin = createAdminClient();
-  const [profilesResult, locationsResult] = await Promise.all([
-    admin.from("perfiles").select("id_perfil, nombre").eq("activo", true).order("nombre"),
-    admin.from("locales").select("id_local, nombre").eq("activo", true).order("nombre"),
+  const [profiles, locations] = await Promise.all([
+    query<{ id_perfil: number; nombre: string }>(
+      `SELECT id_perfil, nombre FROM perfiles WHERE activo = 1 ORDER BY nombre ASC`
+    ),
+    query<{ id_local: number; nombre: string }>(
+      `SELECT id_local, nombre FROM locales WHERE activo = 1 ORDER BY nombre ASC`
+    ),
   ]);
 
-  if (profilesResult.error || locationsResult.error) {
-    console.error("SUPABASE user catalogs ERROR:", {
-      profiles: profilesResult.error?.message,
-      locations: locationsResult.error?.message,
-    });
-    throw new Error("No fue posible cargar perfiles y locales.");
-  }
-
   return {
-    profiles: profilesResult.data,
-    locations: locationsResult.data,
+    profiles: profiles || [],
+    locations: locations || [],
   };
 }
 
 export async function listUsers(search = "") {
   await requirePermission("USUARIO_VER");
-  const admin = createAdminClient();
   const normalizedSearch = normalizeSearch(search);
-  let query = admin
-    .from("usuarios")
-    .select("id_usuario, auth_user_id, cedula, nombres, apellidos, correo, telefono, id_perfil, id_local, activo, bloqueado, debe_cambiar_password, intentos_fallidos, ultimo_acceso", { count: "exact" })
-    .order("nombres")
-    .order("apellidos")
-    .limit(50);
+
+  let sql = `
+    SELECT 
+      u.id_usuario,
+      u.cedula,
+      u.nombres,
+      u.apellidos,
+      u.correo,
+      u.telefono,
+      u.id_perfil,
+      u.id_local,
+      COALESCE(p.nombre, 'Sin perfil') AS perfil,
+      COALESCE(l.nombre, 'Sin local') AS local,
+      u.activo,
+      u.bloqueado,
+      u.debe_cambiar_password,
+      u.intentos_fallidos,
+      u.ultimo_acceso
+    FROM usuarios u
+    LEFT JOIN perfiles p ON p.id_perfil = u.id_perfil
+    LEFT JOIN locales l ON l.id_local = u.id_local
+  `;
+
+  const params: unknown[] = [];
 
   if (normalizedSearch) {
+    sql += `
+      WHERE u.cedula LIKE ? 
+         OR u.nombres LIKE ? 
+         OR u.apellidos LIKE ? 
+         OR u.correo LIKE ?
+    `;
     const pattern = `%${normalizedSearch}%`;
-    query = query.or(`cedula.ilike.${pattern},nombres.ilike.${pattern},apellidos.ilike.${pattern},correo.ilike.${pattern}`);
+    params.push(pattern, pattern, pattern, pattern);
   }
 
-  const [{ data: users, error, count }, catalogs] = await Promise.all([
-    query,
-    getUserCatalogs(),
-  ]);
+  sql += ` ORDER BY u.nombres ASC, u.apellidos ASC LIMIT 50`;
 
-  if (error) {
-    console.error("SUPABASE listUsers ERROR:", {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-    });
-    throw new Error("No fue posible cargar los usuarios.");
-  }
+  const users = await query<UserListItem>(sql, params);
 
-  const profileNames = new Map(catalogs.profiles.map((profile) => [profile.id_perfil, profile.nombre]));
-  const locationNames = new Map(catalogs.locations.map((location) => [location.id_local, location.nombre]));
-  const mappedUsers: UserListItem[] = users.map((user) => ({
-    ...user,
-    perfil: profileNames.get(user.id_perfil) ?? "Sin perfil",
-    local: user.id_local ? locationNames.get(user.id_local) ?? "Sin local" : "Sin local",
-  }));
-
-  return { users: mappedUsers, count: count ?? mappedUsers.length };
+  return {
+    users: users.map((u) => ({
+      ...u,
+      activo: Boolean(u.activo),
+      bloqueado: Boolean(u.bloqueado),
+      debe_cambiar_password: Boolean(u.debe_cambiar_password),
+    })),
+    count: users.length,
+  };
 }
 
 export async function getUserById(id: number | string) {
@@ -107,17 +112,37 @@ export async function getUserById(id: number | string) {
   const parsedId = userIdSchema.safeParse(id);
   if (!parsedId.success) return null;
 
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("usuarios")
-    .select("id_usuario, auth_user_id, cedula, nombres, apellidos, correo, telefono, id_perfil, id_local, activo, bloqueado, debe_cambiar_password, intentos_fallidos, ultimo_acceso")
-    .eq("id_usuario", parsedId.data)
-    .maybeSingle();
+  const user = await queryOne<UserListItem>(
+    `SELECT 
+       u.id_usuario,
+       u.cedula,
+       u.nombres,
+       u.apellidos,
+       u.correo,
+       u.telefono,
+       u.id_perfil,
+       u.id_local,
+       COALESCE(p.nombre, 'Sin perfil') AS perfil,
+       COALESCE(l.nombre, 'Sin local') AS local,
+       u.activo,
+       u.bloqueado,
+       u.debe_cambiar_password,
+       u.intentos_fallidos,
+       u.ultimo_acceso
+     FROM usuarios u
+     LEFT JOIN perfiles p ON p.id_perfil = u.id_perfil
+     LEFT JOIN locales l ON l.id_local = u.id_local
+     WHERE u.id_usuario = ?
+     LIMIT 1`,
+    [parsedId.data]
+  );
 
-  if (error) {
-    console.error("SUPABASE getUserById ERROR:", { code: error.code, message: error.message });
-    throw new Error("No fue posible cargar el usuario.");
-  }
+  if (!user) return null;
 
-  return data;
+  return {
+    ...user,
+    activo: Boolean(user.activo),
+    bloqueado: Boolean(user.bloqueado),
+    debe_cambiar_password: Boolean(user.debe_cambiar_password),
+  };
 }

@@ -1,11 +1,11 @@
 import "server-only";
 
-import { createClient } from "@/src/lib/supabase/server";
+import { query, queryOne } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
 
 const ECUADOR_TIME_ZONE = "America/Guayaquil";
 
-type SaleRow = { fecha: string; total: number | string };
+type SaleRow = { fecha: string | Date; total: number | string };
 
 export type DashboardAlert = {
   id_stock: number;
@@ -70,44 +70,80 @@ function buildLastSevenDays(now: Date, sales: SaleRow[]): DashboardDay[] {
 
 export async function getDashboardData() {
   const context = await requirePermission("DASHBOARD_VER");
-  const supabase = await createClient();
   const now = new Date();
   const today = localDateParts(now);
   const sevenDaysStart = new Date(
     Date.UTC(today.year, today.month - 1, today.day - 6, 5),
-  ).toISOString();
+  );
 
-  const [summaryResult, lowStockResult, outOfStockResult, salesResult] =
-    await Promise.all([
-      supabase.from("vw_dashboard_ventas").select("ventas_hoy, ventas_mes, cantidad_ventas_hoy, cantidad_ventas_mes").maybeSingle(),
-      supabase.from("vw_productos_bajo_stock").select("id_stock, producto, codigo_gs1, bodega, stock_actual, stock_minimo, estado_stock", { count: "exact" }).order("stock_actual").limit(5),
-      supabase.from("vw_productos_agotados").select("id_stock", { count: "exact", head: true }),
-      supabase.from("ventas").select("fecha, total").gte("fecha", sevenDaysStart).neq("estado", "ANULADA").order("fecha"),
-    ]);
+  try {
+    const [summary, lowStockAlerts, lowStockCountRow, outOfStockRow, recentSales] =
+      await Promise.all([
+        queryOne<{
+          ventas_hoy: number;
+          ventas_mes: number;
+          cantidad_ventas_hoy: number;
+          cantidad_ventas_mes: number;
+        }>(
+          `SELECT 
+             ventas_hoy, 
+             ventas_mes, 
+             cantidad_ventas_hoy, 
+             cantidad_ventas_mes 
+           FROM vw_dashboard_ventas 
+           LIMIT 1`
+        ),
+        query<DashboardAlert>(
+          `SELECT 
+             id_stock, 
+             producto, 
+             codigo_gs1, 
+             bodega, 
+             stock_actual, 
+             stock_minimo, 
+             estado_stock 
+           FROM vw_productos_bajo_stock 
+           ORDER BY stock_actual ASC 
+           LIMIT 5`
+        ),
+        queryOne<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM vw_productos_bajo_stock`
+        ),
+        queryOne<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM vw_productos_agotados`
+        ),
+        query<SaleRow>(
+          `SELECT fecha, total 
+           FROM ventas 
+           WHERE fecha >= ? AND UPPER(COALESCE(estado, '')) NOT IN ('ANULADA', 'ANULADO') 
+           ORDER BY fecha ASC`,
+          [sevenDaysStart]
+        ),
+      ]);
 
-  const errors = [summaryResult.error, lowStockResult.error, outOfStockResult.error, salesResult.error].filter(Boolean);
-  if (errors.length) {
-    console.error("SUPABASE dashboard ERROR:", errors.map((error) => ({ code: error?.code, message: error?.message })));
+    const alerts: DashboardAlert[] = (lowStockAlerts ?? []).map((item) => ({
+      id_stock: Number(item.id_stock),
+      producto: item.producto,
+      codigo_gs1: item.codigo_gs1 ?? null,
+      bodega: item.bodega,
+      stock_actual: Number(item.stock_actual) || 0,
+      stock_minimo: Number(item.stock_minimo) || 0,
+      estado_stock: item.estado_stock,
+    }));
+
+    return {
+      context,
+      salesToday: Number(summary?.ventas_hoy) || 0,
+      salesMonth: Number(summary?.ventas_mes) || 0,
+      salesCountToday: Number(summary?.cantidad_ventas_hoy) || 0,
+      salesCountMonth: Number(summary?.cantidad_ventas_mes) || 0,
+      lowStockCount: Number(lowStockCountRow?.count) || alerts.length,
+      outOfStockCount: Number(outOfStockRow?.count) || 0,
+      alerts,
+      lastSevenDays: buildLastSevenDays(now, recentSales ?? []),
+    };
+  } catch (error) {
+    console.error("MySQL dashboard ERROR:", error);
     throw new Error("No fue posible cargar los indicadores del dashboard.");
   }
-
-  const summary = summaryResult.data;
-  const alerts: DashboardAlert[] = (lowStockResult.data ?? []).map((item) => ({
-    ...item,
-    codigo_gs1: item.codigo_gs1 ?? null,
-    stock_actual: Number(item.stock_actual) || 0,
-    stock_minimo: Number(item.stock_minimo) || 0,
-  }));
-
-  return {
-    context,
-    salesToday: Number(summary?.ventas_hoy) || 0,
-    salesMonth: Number(summary?.ventas_mes) || 0,
-    salesCountToday: Number(summary?.cantidad_ventas_hoy) || 0,
-    salesCountMonth: Number(summary?.cantidad_ventas_mes) || 0,
-    lowStockCount: lowStockResult.count ?? alerts.length,
-    outOfStockCount: outOfStockResult.count ?? 0,
-    alerts,
-    lastSevenDays: buildLastSevenDays(now, (salesResult.data ?? []) as SaleRow[]),
-  };
 }

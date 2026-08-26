@@ -9,7 +9,7 @@ export default async function NewUserPage() {
 
   return (
     <ContentContainer className="max-w-4xl">
-      <PageHeader eyebrow="Usuarios" title="Nuevo usuario" description="La cuenta se creará primero en Supabase Auth con la cédula como contraseña temporal." />
+      <PageHeader eyebrow="Usuarios" title="Nuevo usuario" description="La cuenta se creará con la cédula como contraseña temporal de acceso." />
       <UserForm
         profiles={catalogs.profiles.map((item) => ({ id: item.id_perfil, name: item.nombre }))}
         locations={catalogs.locations.map((item) => ({ id: item.id_local, name: item.nombre }))}

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { createAdminClient } from "@/src/lib/supabase/admin";
+import { execute } from "@/src/lib/db/mysql";
 import { createUserFormSchema, updateUserFormSchema, userFieldErrors, type UserFormField } from "@/src/lib/validation/users";
 import { requirePermission } from "@/src/services/auth/authorization";
 import { recordAuditEvent } from "@/src/services/audit/audit";
@@ -47,9 +47,7 @@ export async function createUserAction(
       newValue: { id_usuario: result.id_usuario, creado_por_administrador: true },
     });
   } catch (error) {
-    console.error("createUserAction ERROR:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-    });
+    console.error("createUserAction ERROR:", error);
     return { error: "No fue posible crear el usuario. Verifique que la cédula y el correo no estén registrados." };
   }
 
@@ -71,48 +69,54 @@ export async function updateUserAction(
   const target = await getUserById(parsed.data.id_usuario);
   if (!target) return { error: "Usuario no encontrado." };
 
-  if (target.auth_user_id === context.auth_user_id && target.id_perfil !== parsed.data.id_perfil) {
+  if (target.id_usuario === context.id_usuario && target.id_perfil !== parsed.data.id_perfil) {
     return { error: "No puede cambiar su propio perfil." };
   }
 
-  const admin = createAdminClient();
-  const { error } = await admin
-    .from("usuarios")
-    .update({
-      nombres: parsed.data.nombres,
-      apellidos: parsed.data.apellidos,
-      telefono: parsed.data.telefono || null,
-      id_perfil: parsed.data.id_perfil,
-      id_local: parsed.data.id_local,
-      fecha_actualizacion: new Date().toISOString(),
-    })
-    .eq("id_usuario", parsed.data.id_usuario);
+  try {
+    await execute(
+      `UPDATE usuarios 
+       SET nombres = ?, 
+           apellidos = ?, 
+           telefono = ?, 
+           id_perfil = ?, 
+           id_local = ?, 
+           fecha_actualizacion = NOW() 
+       WHERE id_usuario = ?`,
+      [
+        parsed.data.nombres,
+        parsed.data.apellidos,
+        parsed.data.telefono || null,
+        parsed.data.id_perfil,
+        parsed.data.id_local,
+        parsed.data.id_usuario,
+      ]
+    );
 
-  if (error) {
-    console.error("SUPABASE updateUserAction ERROR:", { code: error.code, message: error.message });
+    await recordAuditEvent({
+      userId: context.id_usuario,
+      table: "usuarios",
+      action: "UPDATE",
+      recordId: target.id_usuario,
+      previousValue: {
+        nombres: target.nombres,
+        apellidos: target.apellidos,
+        telefono: target.telefono,
+        id_perfil: target.id_perfil,
+        id_local: target.id_local,
+      },
+      newValue: {
+        nombres: parsed.data.nombres,
+        apellidos: parsed.data.apellidos,
+        telefono: parsed.data.telefono || null,
+        id_perfil: parsed.data.id_perfil,
+        id_local: parsed.data.id_local,
+      },
+    });
+  } catch (error) {
+    console.error("updateUserAction ERROR:", error);
     return { error: "No fue posible actualizar el usuario." };
   }
-
-  await recordAuditEvent({
-    userId: context.id_usuario,
-    table: "usuarios",
-    action: "UPDATE",
-    recordId: target.id_usuario,
-    previousValue: {
-      nombres: target.nombres,
-      apellidos: target.apellidos,
-      telefono: target.telefono,
-      id_perfil: target.id_perfil,
-      id_local: target.id_local,
-    },
-    newValue: {
-      nombres: parsed.data.nombres,
-      apellidos: parsed.data.apellidos,
-      telefono: parsed.data.telefono || null,
-      id_perfil: parsed.data.id_perfil,
-      id_local: parsed.data.id_local,
-    },
-  });
 
   revalidatePath("/usuarios");
   revalidatePath(`/usuarios/${parsed.data.id_usuario}`);
@@ -126,40 +130,41 @@ export async function changeUserStatusAction(formData: FormData) {
 
   const target = await getUserById(parsed.data.id_usuario);
   if (!target) redirect("/usuarios?error=usuario-no-encontrado");
-  if (target.auth_user_id === context.auth_user_id) {
+  if (target.id_usuario === context.id_usuario) {
     redirect(`/usuarios/${target.id_usuario}?error=accion-propia`);
   }
 
-  const changes = {
-    activate: { activo: true },
-    deactivate: { activo: false },
-    block: { bloqueado: true },
-    unblock: { bloqueado: false, intentos_fallidos: 0 },
-  }[parsed.data.operation];
+  try {
+    if (parsed.data.operation === "activate") {
+      await execute(`UPDATE usuarios SET activo = 1, fecha_actualizacion = NOW() WHERE id_usuario = ?`, [target.id_usuario]);
+    } else if (parsed.data.operation === "deactivate") {
+      await execute(`UPDATE usuarios SET activo = 0, fecha_actualizacion = NOW() WHERE id_usuario = ?`, [target.id_usuario]);
+      // Revocar sesiones activas al desactivar usuario
+      await execute(`UPDATE sesiones_usuario SET revocada = 1 WHERE id_usuario = ?`, [target.id_usuario]);
+    } else if (parsed.data.operation === "block") {
+      await execute(`UPDATE usuarios SET bloqueado = 1, fecha_actualizacion = NOW() WHERE id_usuario = ?`, [target.id_usuario]);
+      // Revocar sesiones activas al bloquear usuario
+      await execute(`UPDATE sesiones_usuario SET revocada = 1 WHERE id_usuario = ?`, [target.id_usuario]);
+    } else if (parsed.data.operation === "unblock") {
+      await execute(`UPDATE usuarios SET bloqueado = 0, intentos_fallidos = 0, fecha_actualizacion = NOW() WHERE id_usuario = ?`, [target.id_usuario]);
+    }
 
-  const admin = createAdminClient();
-  const { error } = await admin
-    .from("usuarios")
-    .update({ ...changes, fecha_actualizacion: new Date().toISOString() })
-    .eq("id_usuario", target.id_usuario);
-
-  if (error) {
-    console.error("SUPABASE changeUserStatusAction ERROR:", { code: error.code, message: error.message });
+    await recordAuditEvent({
+      userId: context.id_usuario,
+      table: "usuarios",
+      action: "UPDATE",
+      recordId: target.id_usuario,
+      previousValue: {
+        activo: target.activo,
+        bloqueado: target.bloqueado,
+        intentos_fallidos: target.intentos_fallidos,
+      },
+      newValue: { operacion: parsed.data.operation },
+    });
+  } catch (error) {
+    console.error("changeUserStatusAction ERROR:", error);
     redirect(`/usuarios/${target.id_usuario}?error=estado-no-actualizado`);
   }
-
-  await recordAuditEvent({
-    userId: context.id_usuario,
-    table: "usuarios",
-    action: "UPDATE",
-    recordId: target.id_usuario,
-    previousValue: {
-      activo: target.activo,
-      bloqueado: target.bloqueado,
-      intentos_fallidos: target.intentos_fallidos,
-    },
-    newValue: changes,
-  });
 
   revalidatePath("/usuarios");
   revalidatePath(`/usuarios/${target.id_usuario}`);
@@ -168,12 +173,11 @@ export async function changeUserStatusAction(formData: FormData) {
 
 export async function resetUserPasswordAction(formData: FormData) {
   const context = await requirePermission("USUARIO_ESTADO");
-  const authUserId = z.string().uuid().safeParse(formData.get("auth_user_id"));
   const internalUserId = z.coerce.number().int().positive().safeParse(formData.get("id_usuario"));
-  if (!authUserId.success || !internalUserId.success) redirect("/usuarios?error=usuario-invalido");
+  if (!internalUserId.success) redirect("/usuarios?error=usuario-invalido");
 
   try {
-    await resetInternalUserPassword(authUserId.data);
+    await resetInternalUserPassword(internalUserId.data);
     await recordAuditEvent({
       userId: context.id_usuario,
       table: "auth",
@@ -182,9 +186,7 @@ export async function resetUserPasswordAction(formData: FormData) {
       newValue: { tipo: "RESTABLECIMIENTO_ADMINISTRATIVO", resultado: "EXITOSO" },
     });
   } catch (error) {
-    console.error("resetUserPasswordAction ERROR:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-    });
+    console.error("resetUserPasswordAction ERROR:", error);
     redirect(`/usuarios/${internalUserId.data}?error=reset-no-completado`);
   }
 

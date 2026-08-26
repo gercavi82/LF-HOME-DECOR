@@ -5,9 +5,8 @@ import { KeyRound, Lock, Power, Unlock } from "lucide-react";
 import { changeUserStatusAction, resetUserPasswordAction } from "@/app/(protected)/usuarios/actions";
 import { Button } from "@/src/components/ui";
 
-export function UserAdminActions({ id, authUserId, active, blocked }: {
+export function UserAdminActions({ id, active, blocked }: {
   id: number;
-  authUserId: string | null;
   active: boolean;
   blocked: boolean;
 }) {
@@ -27,13 +26,12 @@ export function UserAdminActions({ id, authUserId, active, blocked }: {
           {blocked ? <Unlock size={17} aria-hidden="true" /> : <Lock size={17} aria-hidden="true" />} {blocked ? "Desbloquear" : "Bloquear"}
         </Button>
       </form>
-      {authUserId ? (
-        <form action={resetUserPasswordAction} className="sm:col-span-2" onSubmit={(event) => { if (!confirm("¿Restablecer la contraseña temporal a la cédula del usuario?")) event.preventDefault(); }}>
-          <input type="hidden" name="id_usuario" value={id} />
-          <input type="hidden" name="auth_user_id" value={authUserId} />
-          <Button type="submit" variant="secondary" className="w-full"><KeyRound size={17} aria-hidden="true" /> Restablecer contraseña temporal</Button>
-        </form>
-      ) : null}
+      <form action={resetUserPasswordAction} className="sm:col-span-2" onSubmit={(event) => { if (!confirm("¿Restablecer la contraseña temporal a la cédula del usuario?")) event.preventDefault(); }}>
+        <input type="hidden" name="id_usuario" value={id} />
+        <Button type="submit" variant="secondary" className="w-full">
+          <KeyRound size={17} aria-hidden="true" /> Restablecer contraseña temporal
+        </Button>
+      </form>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createAdminClient } from "@/src/lib/supabase/admin";
+import { execute } from "@/src/lib/db/mysql";
 
 export type AuditAction =
   | "INSERT"
@@ -22,28 +22,32 @@ type AuditEvent = {
   newValue?: Record<string, unknown> | null;
 };
 
-/** Registra eventos de negocio. Nunca debe recibir contrasenas, tokens ni secretos. */
-export async function recordAuditEvent(event: AuditEvent) {
-  const admin = createAdminClient();
-  const { error } = await admin.from("auditoria").insert({
-    usuario: event.userId,
-    tabla_afectada: event.table.slice(0, 100),
-    accion: event.action,
-    registro_id: event.recordId ?? null,
-    valor_anterior: event.previousValue ?? null,
-    valor_nuevo: event.newValue ?? null,
-    fecha: new Date().toISOString(),
-  });
+/** Registra eventos de negocio en la tabla auditoria. Nunca debe recibir contrasenas ni secretos. */
+export async function recordAuditEvent(event: AuditEvent): Promise<boolean> {
+  try {
+    await execute(
+      `INSERT INTO auditoria (
+         usuario,
+         tabla_afectada,
+         accion,
+         registro_id,
+         valor_anterior,
+         valor_nuevo,
+         fecha
+       ) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        event.userId ?? null,
+        event.table.slice(0, 100),
+        event.action,
+        event.recordId ?? null,
+        event.previousValue ? JSON.stringify(event.previousValue) : null,
+        event.newValue ? JSON.stringify(event.newValue) : null,
+      ]
+    );
 
-  if (error) {
-    console.error("SUPABASE audit event ERROR:", {
-      code: error.code,
-      message: error.message,
-      action: event.action,
-      table: event.table,
-    });
+    return true;
+  } catch (error) {
+    console.error("MySQL audit event ERROR:", error);
     return false;
   }
-
-  return true;
 }

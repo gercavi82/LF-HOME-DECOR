@@ -5,8 +5,9 @@ import { headers } from "next/headers";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-import { createAdminClient } from "@/src/lib/supabase/admin";
-import { createClient } from "@/src/lib/supabase/server";
+import { execute, queryOne } from "@/src/lib/db/mysql";
+import { verifyPassword } from "@/src/lib/auth/password";
+import { createSession, revokeCurrentSession, validateCurrentSession } from "@/src/lib/auth/session";
 import { recordAuditEvent } from "@/src/services/audit/audit";
 import { resolveUserByCedula } from "@/src/services/auth/resolve-user-by-cedula";
 
@@ -20,24 +21,62 @@ export type LoginState = {
 };
 
 const genericLoginError = "Usuario o contraseña incorrectos.";
-const unavailableLoginError =
-  "No fue posible iniciar sesión. Intente nuevamente en unos momentos.";
+const unavailableLoginError = "No fue posible iniciar sesión. Intente nuevamente en unos momentos.";
 const rateLimitError = "Demasiados intentos. Espere 15 minutos antes de volver a intentar.";
+const accountBlockedError = "Su cuenta ha sido bloqueada por exceso de intentos fallidos. Contacte al administrador.";
 
-async function loginRateKey(cedula: string) {
+async function loginRateKey(cedula: string): Promise<string> {
   const requestHeaders = await headers();
   const forwarded = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim();
   const address = forwarded || requestHeaders.get("x-real-ip") || "local";
-  return createHash("sha256").update(`${cedula}:${address}:${process.env.SUPABASE_SECRET_KEY ?? "server"}`).digest("hex");
+  const salt = process.env.SESSION_SECRET || "lf-decor-auth-salt";
+  return createHash("sha256").update(`${cedula}:${address}:${salt}`).digest("hex");
 }
 
-async function controlLoginRate(admin: ReturnType<typeof createAdminClient>, key: string, operation: "CHECK" | "FAILURE" | "SUCCESS") {
-  const { data, error } = await admin.rpc("sp_controlar_limite_login", { p_clave_hash: key, p_operacion: operation });
-  if (error) {
-    console.error("SUPABASE login rate limit ERROR:", { code: error.code, operation });
+async function controlLoginRate(key: string, operation: "CHECK" | "FAILURE" | "SUCCESS"): Promise<boolean> {
+  try {
+    if (operation === "SUCCESS") {
+      await execute(`DELETE FROM auth_rate_limits WHERE clave_hash = ?`, [key]);
+      return true;
+    }
+
+    const row = await queryOne<{ intentos: number; ventana_inicio: Date; bloqueado_hasta: Date | null }>(
+      `SELECT intentos, ventana_inicio, bloqueado_hasta FROM auth_rate_limits WHERE clave_hash = ? LIMIT 1`,
+      [key]
+    );
+
+    const now = new Date();
+
+    if (row?.bloqueado_hasta && new Date(row.bloqueado_hasta) > now) {
+      return false;
+    }
+
+    if (operation === "CHECK") {
+      return true;
+    }
+
+    if (operation === "FAILURE") {
+      const isWindowExpired = !row || (now.getTime() - new Date(row.ventana_inicio).getTime()) > 15 * 60 * 1000;
+      const nextAttempts = isWindowExpired ? 1 : (row.intentos + 1);
+      const isBlocked = nextAttempts >= 10;
+      const blockUntil = isBlocked ? new Date(now.getTime() + 15 * 60 * 1000) : null;
+
+      await execute(
+        `INSERT INTO auth_rate_limits (clave_hash, intentos, ventana_inicio, bloqueado_hasta, actualizado_en)
+         VALUES (?, ?, NOW(), ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           intentos = VALUES(intentos),
+           bloqueado_hasta = VALUES(bloqueado_hasta),
+           actualizado_en = NOW()`,
+        [key, nextAttempts, blockUntil]
+      );
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Rate limit check error:", err);
     return true;
   }
-  return (data as { permitido?: boolean } | null)?.permitido !== false;
 }
 
 export async function loginAction(
@@ -53,58 +92,41 @@ export async function loginAction(
     return { error: genericLoginError };
   }
 
-  let admin: ReturnType<typeof createAdminClient>;
-  let user: Awaited<ReturnType<typeof resolveUserByCedula>>;
+  const rateKey = await loginRateKey(parsed.data.cedula);
+  const isRateAllowed = await controlLoginRate(rateKey, "CHECK");
+  if (!isRateAllowed) {
+    return { error: rateLimitError };
+  }
 
+  let user: Awaited<ReturnType<typeof resolveUserByCedula>>;
   try {
-    admin = createAdminClient();
-    const rateKey = await loginRateKey(parsed.data.cedula);
-    if (!await controlLoginRate(admin, rateKey, "CHECK")) return { error: rateLimitError };
     user = await resolveUserByCedula(parsed.data.cedula);
   } catch (error) {
-    console.error("Login internal user lookup ERROR:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-    });
+    console.error("Login user lookup ERROR:", error);
     return { error: unavailableLoginError };
   }
 
-  if (!user || !user.activo || user.bloqueado || !user.auth_user_id) {
-    await controlLoginRate(admin, await loginRateKey(parsed.data.cedula), "FAILURE");
+  if (!user || !user.activo) {
+    await controlLoginRate(rateKey, "FAILURE");
     return { error: genericLoginError };
   }
 
-  const supabase = await createClient();
-  const { data: authData, error: authError } =
-    await supabase.auth.signInWithPassword({
-      email: user.correo,
-      password: parsed.data.password,
-    });
+  if (user.bloqueado) {
+    return { error: accountBlockedError };
+  }
 
-  if (authError || !authData.user) {
-    console.error("SUPABASE signInWithPassword ERROR:", {
-      code: (authError as { code?: string } | null)?.code,
-      message: authError?.message,
-      details: (authError as { details?: string } | null)?.details,
-      hint: (authError as { hint?: string } | null)?.hint,
-    });
+  const isValidPassword = await verifyPassword(parsed.data.password, user.password_hash);
 
-    const nextFailedAttempts = user.intentos_fallidos + 1;
-    const { error: attemptsError } = await admin
-      .from("usuarios")
-      .update({
-        intentos_fallidos: nextFailedAttempts,
-        bloqueado: nextFailedAttempts >= 5,
-      })
-      .eq("id_usuario", user.id_usuario);
+  if (!isValidPassword) {
+    const nextFailedAttempts = (user.intentos_fallidos || 0) + 1;
+    const shouldBlock = nextFailedAttempts >= 5;
 
-    if (attemptsError) {
-      console.error("SUPABASE login attempts ERROR:", {
-        code: attemptsError.code,
-        message: attemptsError.message,
-        details: attemptsError.details,
-        hint: attemptsError.hint,
-      });
-    }
+    await execute(
+      `UPDATE usuarios 
+       SET intentos_fallidos = ?, bloqueado = ?
+       WHERE id_usuario = ?`,
+      [nextFailedAttempts, shouldBlock ? 1 : 0, user.id_usuario]
+    );
 
     await recordAuditEvent({
       userId: user.id_usuario,
@@ -115,38 +137,29 @@ export async function loginAction(
       newValue: {
         resultado: "FALLIDO",
         intentos_fallidos: nextFailedAttempts,
-        bloqueado: nextFailedAttempts >= 5,
+        bloqueado: shouldBlock,
       },
     });
 
-    await controlLoginRate(admin, await loginRateKey(parsed.data.cedula), "FAILURE");
+    await controlLoginRate(rateKey, "FAILURE");
+
+    if (shouldBlock) {
+      return { error: accountBlockedError };
+    }
 
     return { error: genericLoginError };
   }
 
-  if (authData.user.id !== user.auth_user_id) {
-    await supabase.auth.signOut();
-    return { error: genericLoginError };
-  }
+  // Contraseña correcta: actualizar acceso y resetear intentos
+  await execute(
+    `UPDATE usuarios 
+     SET ultimo_acceso = NOW(), intentos_fallidos = 0 
+     WHERE id_usuario = ?`,
+    [user.id_usuario]
+  );
 
-  const { error: accessUpdateError } = await admin
-    .from("usuarios")
-    .update({
-      ultimo_acceso: new Date().toISOString(),
-      intentos_fallidos: 0,
-    })
-    .eq("id_usuario", user.id_usuario);
-
-  if (accessUpdateError) {
-    console.error("SUPABASE login access update ERROR:", {
-      code: accessUpdateError.code,
-      message: accessUpdateError.message,
-      details: accessUpdateError.details,
-      hint: accessUpdateError.hint,
-    });
-    await supabase.auth.signOut();
-    return { error: unavailableLoginError };
-  }
+  // Crear sesión en MySQL y asignar cookie HttpOnly
+  await createSession(user.id_usuario);
 
   await recordAuditEvent({
     userId: user.id_usuario,
@@ -156,34 +169,24 @@ export async function loginAction(
     newValue: { resultado: "EXITOSO" },
   });
 
-  await controlLoginRate(admin, await loginRateKey(parsed.data.cedula), "SUCCESS");
+  await controlLoginRate(rateKey, "SUCCESS");
 
   redirect(user.debe_cambiar_password ? "/cambiar-password" : "/dashboard");
 }
 
-export async function logoutAction() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
+export async function logoutAction(): Promise<void> {
+  const session = await validateCurrentSession();
 
-  if (data.user) {
-    const admin = createAdminClient();
-    const { data: internalUser } = await admin
-      .from("usuarios")
-      .select("id_usuario")
-      .eq("auth_user_id", data.user.id)
-      .maybeSingle();
-
-    if (internalUser) {
-      await recordAuditEvent({
-        userId: internalUser.id_usuario,
-        table: "auth",
-        action: "LOGOUT",
-        recordId: internalUser.id_usuario,
-        newValue: { resultado: "EXITOSO" },
-      });
-    }
+  if (session) {
+    await recordAuditEvent({
+      userId: session.id_usuario,
+      table: "auth",
+      action: "LOGOUT",
+      recordId: session.id_usuario,
+      newValue: { resultado: "EXITOSO" },
+    });
   }
 
-  await supabase.auth.signOut();
+  await revokeCurrentSession();
   redirect("/login");
 }

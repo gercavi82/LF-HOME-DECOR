@@ -1,9 +1,8 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
-
-import { createAdminClient } from "@/src/lib/supabase/admin";
-import { createClient } from "@/src/lib/supabase/server";
+import { query, queryOne } from "@/src/lib/db/mysql";
+import { validateCurrentSession, type UserSession } from "@/src/lib/auth/session";
 
 export const ROLE_NAMES = {
   ADMINISTRADOR: "Administrador",
@@ -19,7 +18,6 @@ export type Permission = {
 
 export type AuthContext = {
   id_usuario: number;
-  auth_user_id: string;
   id_perfil: number;
   id_local: number | null;
   perfil: string;
@@ -30,99 +28,98 @@ export type AuthContext = {
   permisos: Permission[];
 };
 
-export async function getAuthContext(): Promise<AuthContext | null> {
-  const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getUser();
+/**
+ * Obtiene la sesión activa actual desde la cookie HttpOnly y la base de datos MySQL.
+ * Retorna null si no existe una sesión válida, está expirada o revocada.
+ */
+export async function getCurrentSession(): Promise<UserSession | null> {
+  return validateCurrentSession();
+}
 
-  if (!authData.user) {
+/**
+ * Obtiene los permisos asignados a un perfil específico desde la tabla perfil_permisos.
+ */
+export async function getUserPermissions(profileId: number): Promise<Permission[]> {
+  try {
+    const rows = await query<Permission>(
+      `SELECT 
+         perm.id_permiso,
+         perm.codigo,
+         perm.nombre
+       FROM perfil_permisos pp
+       JOIN permisos perm ON perm.id_permiso = pp.id_permiso
+       WHERE pp.id_perfil = ? AND perm.activo = 1`,
+      [profileId]
+    );
+
+    return rows || [];
+  } catch (error) {
+    console.error("Error al obtener permisos de perfil:", error);
+    return [];
+  }
+}
+
+/**
+ * Obtiene el contexto del usuario autenticado actual con sus permisos dinámicos.
+ * Retorna null si no está autenticado.
+ */
+export async function getCurrentUser(): Promise<AuthContext | null> {
+  const session = await getCurrentSession();
+
+  if (!session) {
     return null;
   }
 
-  const admin = createAdminClient();
-  const { data: user, error: userError } = await admin
-    .from("usuarios")
-    .select(
-      "id_usuario, auth_user_id, id_perfil, id_local, cedula, nombres, apellidos, debe_cambiar_password, activo, bloqueado",
-    )
-    .eq("auth_user_id", authData.user.id)
-    .maybeSingle();
+  // Obtener perfil del usuario
+  const profile = await queryOne<{ nombre: string }>(
+    `SELECT nombre FROM perfiles WHERE id_perfil = ? AND activo = 1 LIMIT 1`,
+    [session.id_perfil]
+  );
 
-  if (
-    userError ||
-    !user ||
-    user.auth_user_id !== authData.user.id ||
-    !user.activo ||
-    user.bloqueado
-  ) {
-    if (userError) {
-      console.error("SUPABASE authorization user ERROR:", {
-        code: userError.code,
-        message: userError.message,
-        details: userError.details,
-        hint: userError.hint,
-      });
-    }
-
-    await supabase.auth.signOut();
+  if (!profile) {
     return null;
   }
 
-  const { data: profile, error: profileError } = await admin
-    .from("perfiles")
-    .select("id_perfil, nombre")
-    .eq("id_perfil", user.id_perfil)
-    .maybeSingle();
-
-  if (profileError || !profile) {
-    if (profileError) {
-      console.error("SUPABASE authorization profile ERROR:", {
-        code: profileError.code,
-        message: profileError.message,
-        details: profileError.details,
-        hint: profileError.hint,
-      });
-    }
-
-    return null;
-  }
-
-  const { data: profilePermissions, error: permissionsError } = await admin
-    .from("perfil_permisos")
-    .select("permisos ( id_permiso, codigo, nombre )")
-    .eq("id_perfil", user.id_perfil);
-
-  if (permissionsError) {
-    console.error("SUPABASE authorization permissions ERROR:", {
-      code: permissionsError.code,
-      message: permissionsError.message,
-      details: permissionsError.details,
-      hint: permissionsError.hint,
-    });
-
-    return null;
-  }
-
-  const permisos = profilePermissions.flatMap((item) => {
-    const permission = item.permisos;
-    return Array.isArray(permission) ? permission : permission ? [permission] : [];
-  }) as Permission[];
+  // Obtener permisos asignados al perfil a través de perfil_permisos
+  const permisos = await getUserPermissions(session.id_perfil);
 
   return {
-    id_usuario: user.id_usuario,
-    auth_user_id: user.auth_user_id,
-    id_perfil: user.id_perfil,
-    id_local: user.id_local,
+    id_usuario: session.id_usuario,
+    id_perfil: session.id_perfil,
+    id_local: session.id_local,
     perfil: profile.nombre,
-    cedula: user.cedula,
-    nombres: user.nombres,
-    apellidos: user.apellidos,
-    debe_cambiar_password: user.debe_cambiar_password,
+    cedula: session.cedula,
+    nombres: session.nombres,
+    apellidos: session.apellidos,
+    debe_cambiar_password: Boolean(session.debe_cambiar_password),
     permisos,
   };
 }
 
-export async function requireAuthContext() {
-  const context = await getAuthContext();
+/**
+ * Alias para compatibilidad de servicios existentes.
+ */
+export async function getAuthContext(): Promise<AuthContext | null> {
+  return getCurrentUser();
+}
+
+/**
+ * Verifica si el usuario actual posee un permiso específico (basado en perfil_permisos).
+ */
+export async function hasPermission(permissionCode: string): Promise<boolean> {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  return user.permisos.some((p) => p.codigo === permissionCode);
+}
+
+/**
+ * Exige que el usuario esté autenticado.
+ * Si no hay sesión válida, redirige a /login.
+ * Si debe cambiar contraseña, redirige a /cambiar-password.
+ */
+export async function requireAuth(): Promise<AuthContext> {
+  const context = await getCurrentUser();
 
   if (!context) {
     redirect("/login");
@@ -135,13 +132,26 @@ export async function requireAuthContext() {
   return context;
 }
 
-export async function requirePermission(permissionCode: string) {
-  const context = await requireAuthContext();
+/**
+ * Alias para compatibilidad de servicios existentes.
+ */
+export async function requireAuthContext(): Promise<AuthContext> {
+  return requireAuth();
+}
 
-  if (
-    context.perfil !== ROLE_NAMES.ADMINISTRADOR &&
-    !context.permisos.some((permission) => permission.codigo === permissionCode)
-  ) {
+/**
+ * Exige que el usuario tenga un permiso específico asignado.
+ * No hardcodea nombres de perfil; valida estrictamente contra perfil_permisos.
+ * Si no tiene el permiso, redirige a /sin-permiso.
+ */
+export async function requirePermission(permissionCode: string): Promise<AuthContext> {
+  const context = await requireAuth();
+
+  const isAllowed = context.permisos.some(
+    (permission) => permission.codigo === permissionCode
+  );
+
+  if (!isAllowed) {
     redirect("/sin-permiso");
   }
 

@@ -1,9 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
-
-import { createAdminClient } from "@/src/lib/supabase/admin";
-import { requireAuthContext, ROLE_NAMES } from "@/src/services/auth/authorization";
+import { query, execute } from "@/src/lib/db/mysql";
+import { requirePermission } from "@/src/services/auth/authorization";
 
 export const catalogDefinitions = {
   categorias: { label: "Categorías", singular: "categoría", table: "categorias", id: "id_categoria", fields: ["codigo", "descripcion"] },
@@ -35,10 +34,8 @@ const itemSchema = z.object({
   codigo_hex: z.string().trim().regex(/^#[0-9A-Fa-f]{6}$/, "Use un color hexadecimal como #C96D4D.").optional().or(z.literal("")),
 });
 
-async function requireAdministrator() {
-  const context = await requireAuthContext();
-  if (context.perfil !== ROLE_NAMES.ADMINISTRADOR) throw new Error("No autorizado.");
-  return context;
+async function requireCatalogAccess() {
+  return requirePermission("CONFIGURACION_VER");
 }
 
 export function parseCatalogKey(value: string) {
@@ -47,14 +44,15 @@ export function parseCatalogKey(value: string) {
 }
 
 export async function listCatalogItems(key: CatalogKey) {
-  await requireAdministrator();
+  await requireCatalogAccess();
   const definition = catalogDefinitions[key];
-  const columns = [definition.id, "nombre", "activo", ...definition.fields].join(", ");
-  const admin = createAdminClient();
-  const { data, error } = await admin.from(definition.table).select(columns).order("nombre");
-  if (error) throw new Error(`No fue posible cargar ${definition.label.toLowerCase()}.`);
-  return (data ?? []).map((row) => {
-    const record = row as unknown as Record<string, unknown>;
+  const columns = [definition.id, "nombre", "activo", ...definition.fields].map((c) => `\`${c}\``).join(", ");
+  
+  const data = await query<Record<string, unknown>>(
+    `SELECT ${columns} FROM \`${definition.table}\` ORDER BY \`nombre\` ASC`
+  );
+
+  return (data ?? []).map((record) => {
     return {
       id: Number(record[definition.id]),
       nombre: String(record.nombre),
@@ -67,7 +65,7 @@ export async function listCatalogItems(key: CatalogKey) {
 }
 
 export async function saveCatalogItem(key: CatalogKey, raw: Record<string, unknown>, id?: number) {
-  await requireAdministrator();
+  await requireCatalogAccess();
   const definition = catalogDefinitions[key];
   const parsed = itemSchema.safeParse(raw);
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Datos inválidos.");
@@ -75,35 +73,65 @@ export async function saveCatalogItem(key: CatalogKey, raw: Record<string, unkno
     throw new Error("El código de la unidad es obligatorio.");
   }
 
-  const payload: Record<string, string | boolean | null> = { nombre: parsed.data.nombre, activo: true };
-  for (const field of definition.fields as readonly CatalogField[]) payload[field] = parsed.data[field] || null;
+  const fieldKeys = ["nombre", "activo", ...definition.fields];
+  const fieldValues: (string | number | boolean | null)[] = [parsed.data.nombre, 1];
+  for (const field of definition.fields as readonly CatalogField[]) {
+    fieldValues.push(parsed.data[field] || null);
+  }
 
-  const admin = createAdminClient();
-  const query = id
-    ? admin.from(definition.table).update(payload).eq(definition.id, id)
-    : admin.from(definition.table).insert(payload);
-  const { error } = await query;
-  if (error) {
-    if (error.code === "23505") throw new Error("Ya existe un registro con ese nombre o código.");
+  try {
+    if (id) {
+      const updateSets = fieldKeys.map((k) => `\`${k}\` = ?`).join(", ");
+      await execute(
+        `UPDATE \`${definition.table}\` SET ${updateSets} WHERE \`${definition.id}\` = ?`,
+        [...fieldValues, id]
+      );
+    } else {
+      const cols = fieldKeys.map((k) => `\`${k}\``).join(", ");
+      const placeholders = fieldKeys.map(() => "?").join(", ");
+      await execute(
+        `INSERT INTO \`${definition.table}\` (${cols}) VALUES (${placeholders})`,
+        fieldValues
+      );
+    }
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err?.code === "ER_DUP_ENTRY") {
+      throw new Error("Ya existe un registro con ese nombre o código.");
+    }
+    console.error("saveCatalogItem ERROR:", error);
     throw new Error(`No fue posible guardar la ${definition.singular}.`);
   }
 }
 
 export async function setCatalogItemStatus(key: CatalogKey, id: number, activo: boolean) {
-  await requireAdministrator();
+  await requireCatalogAccess();
   const definition = catalogDefinitions[key];
-  const admin = createAdminClient();
-  const { error } = await admin.from(definition.table).update({ activo }).eq(definition.id, id);
-  if (error) throw new Error("No fue posible cambiar el estado.");
+  try {
+    await execute(
+      `UPDATE \`${definition.table}\` SET \`activo\` = ? WHERE \`${definition.id}\` = ?`,
+      [activo ? 1 : 0, id]
+    );
+  } catch (error) {
+    console.error("setCatalogItemStatus ERROR:", error);
+    throw new Error("No fue posible cambiar el estado.");
+  }
 }
 
 export async function deleteCatalogItem(key: CatalogKey, id: number) {
-  await requireAdministrator();
+  await requireCatalogAccess();
   const definition = catalogDefinitions[key];
-  const admin = createAdminClient();
-  const { error } = await admin.from(definition.table).delete().eq(definition.id, id);
-  if (error) {
-    if (error.code === "23503") throw new Error("No se puede eliminar porque está siendo utilizado. Puede desactivarlo.");
+  try {
+    await execute(
+      `DELETE FROM \`${definition.table}\` WHERE \`${definition.id}\` = ?`,
+      [id]
+    );
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err?.code === "ER_ROW_IS_REFERENCED" || err?.code === "ER_ROW_IS_REFERENCED_2" || err?.code === "23503") {
+      throw new Error("No se puede eliminar porque está siendo utilizado. Puede desactivarlo.");
+    }
+    console.error("deleteCatalogItem ERROR:", error);
     throw new Error("No fue posible eliminar el registro.");
   }
 }

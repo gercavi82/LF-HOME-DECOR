@@ -1,7 +1,12 @@
 import "server-only";
 
-import { createAdminClient } from "@/src/lib/supabase/admin";
-import { requirePermission, ROLE_NAMES } from "@/src/services/auth/authorization";
+import { z } from "zod";
+import { query, queryOne } from "@/src/lib/db/mysql";
+import {
+  type AuthContext,
+  requirePermission,
+  ROLE_NAMES,
+} from "@/src/services/auth/authorization";
 
 export type SaleListItem = {
   id_venta: number;
@@ -15,20 +20,25 @@ export type SaleListItem = {
   estado: string;
 };
 
-export type SaleProduct = {
-  id_variante: number;
-  id_producto: number;
+export type SaleReceiptItem = {
+  id_detalle: number;
   producto: string;
-  codigo_interno: string;
-  codigo_gs1: string | null;
-  precio: number;
-  porcentaje_iva: number;
-  imagen_url: string | null;
-  stockPorLocal: Record<number, number>;
+  descripcion: string;
+  codigo_gs1: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  iva: number;
+  total: number;
 };
-export type SaleChannel = { id_canal: number; codigo: string; nombre: string };
-export type SalePaymentMethod = { id_forma_pago: number; codigo: string; nombre: string; requiere_referencia: boolean };
-export type SaleCustomer = { id_cliente: number; nombre: string; identificacion: string | null };
+
+export type SaleReceiptPayment = {
+  id_pago: number;
+  forma: string;
+  forma_pago: string;
+  valor: number;
+  referencia: string | null;
+};
 
 export type SaleReceipt = {
   id_venta: number;
@@ -37,207 +47,659 @@ export type SaleReceipt = {
   local: string;
   cliente: string;
   identificacion: string | null;
-  vendedor: string;
   canal: string;
+  vendedor: string;
   subtotal: number;
   descuento: number;
   iva: number;
   total: number;
   estado: string;
-  items: Array<{ id_detalle: number; producto: string; codigo_gs1: string; cantidad: number; precio_unitario: number; subtotal: number; iva: number; total: number }>;
-  pagos: Array<{ id_pago: number; forma: string; valor: number; referencia: string | null }>;
+  items: SaleReceiptItem[];
+  pagos: SaleReceiptPayment[];
 };
 
-export type SaleHistoryFilters = { from?: string; to?: string; seller?: number; channel?: number; paymentMethod?: number; number?: string };
-export type SaleHistoryItem = SaleListItem & { paymentMethods: string };
-export type SaleAuditEntry = { id: number; action: string; table: string; date: string; user: string; previousValue: Record<string, unknown> | null; newValue: Record<string, unknown> | null };
+export type SaleHistoryItem = SaleListItem & {
+  paymentMethods: string;
+};
 
-function sanitizeSearch(value: string) {
-  return value.normalize("NFKC").replace(/[^\p{L}\p{N}._\-\s]/gu, "").trim().slice(0, 60);
+export type SaleAuditEntry = {
+  id: number;
+  action: string;
+  table: string;
+  date: string;
+  user: string;
+  previousValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+};
+
+export type SaleLocation = { id_local: number; nombre: string };
+export type SaleProduct = {
+  id_variante: number;
+  id_producto: number;
+  codigo_gs1: string;
+  codigo_interno: string;
+  precio: number;
+  precio_venta: number;
+  porcentaje_iva: number;
+  stock_minimo: number;
+  producto: string;
+  id_categoria: number;
+  id_tipo: number;
+  stockPorLocal: Record<number, number>;
+};
+export type SaleWarehouse = { id_bodega: number; id_local: number; nombre: string };
+export type SaleStock = { id_variante: number; id_bodega: number; cantidad: number };
+export type SaleChannel = { id_canal: number; nombre: string; codigo: string };
+export type SalePaymentMethod = {
+  id_forma_pago: number;
+  nombre: string;
+  codigo: string;
+  requiere_referencia: boolean;
+};
+export type SaleCustomer = { id_cliente: number; identificacion: string; nombre: string; name: string };
+
+const validDate = /^\d{4}-\d{2}-\d{2}$/;
+
+function cleanSearch(value: string) {
+  return value.normalize("NFKC").replace(/[^\p{L}\p{N}._\-\s]/gu, "").trim().slice(0, 80);
 }
 
-export async function listSales(search = "") {
+type SaleListRowRaw = {
+  id_venta: number;
+  numero_venta: string | null;
+  fecha: Date | string;
+  local_nombre: string | null;
+  cliente_nombre: string | null;
+  canal_nombre: string | null;
+  vendedor_nombre: string | null;
+  total: number;
+  estado: string;
+};
+
+export async function listSales(search = ""): Promise<{
+  sales: SaleListItem[];
+  count: number;
+  context: AuthContext;
+}> {
   const context = await requirePermission("VENTA_VER");
-  const admin = createAdminClient();
-  const normalized = sanitizeSearch(search);
-  let query = admin.from("ventas").select("id_venta, numero_venta, id_local, id_cliente, id_canal, id_usuario, fecha, total, estado", { count: "exact" }).order("fecha", { ascending: false }).limit(50);
-  if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) query = query.eq("id_local", context.id_local);
-  if (context.perfil === ROLE_NAMES.ASESOR) query = query.eq("id_usuario", context.id_usuario);
-  if (normalized) query = query.ilike("numero_venta", `%${normalized}%`);
-  const { data: sales, error, count } = await query;
-  if (error) throw new Error("No fue posible cargar las ventas.");
-  const rows = sales ?? [];
-  const localIds = [...new Set(rows.map((sale) => sale.id_local))];
-  const clientIds = [...new Set(rows.map((sale) => sale.id_cliente).filter((id): id is number => id !== null))];
-  const channelIds = [...new Set(rows.map((sale) => sale.id_canal))];
-  const userIds = [...new Set(rows.map((sale) => sale.id_usuario))];
-  const [{ data: locations }, { data: clients }, { data: channels }, { data: users }] = await Promise.all([
-    localIds.length ? admin.from("locales").select("id_local, nombre").in("id_local", localIds) : Promise.resolve({ data: [] }),
-    clientIds.length ? admin.from("clientes").select("id_cliente, nombres, razon_social, identificacion").in("id_cliente", clientIds) : Promise.resolve({ data: [] }),
-    channelIds.length ? admin.from("canales_venta").select("id_canal, nombre").in("id_canal", channelIds) : Promise.resolve({ data: [] }),
-    userIds.length ? admin.from("usuarios").select("id_usuario, nombres, apellidos").in("id_usuario", userIds) : Promise.resolve({ data: [] }),
-  ]);
-  const locationMap = new Map((locations ?? []).map((item) => [item.id_local, item.nombre]));
-  const clientMap = new Map((clients ?? []).map((item) => [item.id_cliente, item.razon_social || item.nombres || item.identificacion || "Cliente"]));
-  const channelMap = new Map((channels ?? []).map((item) => [item.id_canal, item.nombre]));
-  const userMap = new Map((users ?? []).map((item) => [item.id_usuario, `${item.nombres} ${item.apellidos}`]));
-  const mapped: SaleListItem[] = rows.map((sale) => ({ id_venta: sale.id_venta, numero_venta: sale.numero_venta || `#${sale.id_venta}`, fecha: sale.fecha, local: locationMap.get(sale.id_local) ?? "Local", cliente: sale.id_cliente ? clientMap.get(sale.id_cliente) ?? "Cliente" : "Consumidor final", canal: channelMap.get(sale.id_canal) ?? "Canal", vendedor: userMap.get(sale.id_usuario) ?? "Usuario", total: Number(sale.total) || 0, estado: sale.estado }));
-  return { sales: mapped, count: count ?? mapped.length, context };
+  const normalized = cleanSearch(search);
+
+  let sql = `
+    SELECT 
+      v.id_venta,
+      v.numero_venta,
+      v.fecha,
+      l.nombre AS local_nombre,
+      COALESCE(c.razon_social, c.nombres, c.identificacion, 'Consumidor final') AS cliente_nombre,
+      ch.nombre AS canal_nombre,
+      CONCAT(u.nombres, ' ', u.apellidos) AS vendedor_nombre,
+      v.total,
+      v.estado
+    FROM ventas v
+    JOIN locales l ON l.id_local = v.id_local
+    LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
+    JOIN canales_venta ch ON ch.id_canal = v.id_canal
+    JOIN usuarios u ON u.id_usuario = v.id_usuario
+  `;
+
+  const whereClauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) {
+    whereClauses.push(`v.id_local = ?`);
+    params.push(context.id_local);
+  }
+
+  if (context.perfil === ROLE_NAMES.ASESOR) {
+    whereClauses.push(`v.id_usuario = ?`);
+    params.push(context.id_usuario);
+  }
+
+  if (normalized) {
+    whereClauses.push(`v.numero_venta LIKE ?`);
+    params.push(`%${normalized}%`);
+  }
+
+  if (whereClauses.length > 0) {
+    sql += ` WHERE ` + whereClauses.join(" AND ");
+  }
+
+  sql += ` ORDER BY v.fecha DESC LIMIT 50`;
+
+  try {
+    const rows = await query<SaleListRowRaw>(sql, params);
+
+    const mapped: SaleListItem[] = rows.map((sale) => ({
+      id_venta: Number(sale.id_venta),
+      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+      fecha: String(sale.fecha),
+      local: sale.local_nombre ?? "Local",
+      cliente: sale.cliente_nombre ?? "Consumidor final",
+      canal: sale.canal_nombre ?? "Canal",
+      vendedor: sale.vendedor_nombre ?? "Usuario",
+      total: Number(sale.total) || 0,
+      estado: sale.estado,
+    }));
+
+    return { sales: mapped, count: mapped.length, context };
+  } catch (error) {
+    console.error("MySQL listSales ERROR:", error);
+    throw new Error("No fue posible cargar las ventas.");
+  }
 }
+
+type ReceiptHeaderRaw = {
+  id_venta: number;
+  numero_venta: string | null;
+  fecha: Date | string;
+  subtotal: number;
+  descuento: number;
+  iva: number;
+  total: number;
+  estado: string;
+  local_nombre: string | null;
+  cliente_razon_social: string | null;
+  cliente_nombres: string | null;
+  cliente_identificacion: string | null;
+  canal_nombre: string | null;
+  vendedor_nombre: string | null;
+};
+
+type ReceiptDetailRaw = {
+  id_detalle: number;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  iva: number;
+  total: number;
+  producto_descripcion: string;
+  codigo_gs1: string;
+};
+
+type ReceiptPaymentRaw = {
+  id_pago: number;
+  valor: number;
+  referencia: string | null;
+  forma_pago_nombre: string | null;
+};
 
 export async function getSaleReceipt(id: number): Promise<SaleReceipt | null> {
   const context = await requirePermission("VENTA_VER");
   if (!Number.isInteger(id) || id <= 0) return null;
-  const admin = createAdminClient();
-  let saleQuery = admin.from("ventas").select("id_venta, numero_venta, id_local, id_cliente, id_canal, id_usuario, fecha, subtotal, descuento, iva, total, estado").eq("id_venta", id);
-  if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) saleQuery = saleQuery.eq("id_local", context.id_local);
-  if (context.perfil === ROLE_NAMES.ASESOR) saleQuery = saleQuery.eq("id_usuario", context.id_usuario);
-  const { data: sale, error } = await saleQuery.maybeSingle();
-  if (error) throw new Error("No fue posible cargar el comprobante.");
-  if (!sale) return null;
 
-  const [{ data: details, error: detailsError }, { data: payments, error: paymentsError }, { data: location }, { data: customer }, { data: channel }, { data: seller }] = await Promise.all([
-    admin.from("detalle_ventas").select("id_detalle, id_variante, cantidad, precio_unitario, subtotal, iva, total").eq("id_venta", id).order("id_detalle"),
-    admin.from("pagos_venta").select("id_pago, id_forma_pago, valor, referencia").eq("id_venta", id).order("id_pago"),
-    admin.from("locales").select("nombre").eq("id_local", sale.id_local).maybeSingle(),
-    sale.id_cliente ? admin.from("clientes").select("nombres, razon_social, identificacion").eq("id_cliente", sale.id_cliente).maybeSingle() : Promise.resolve({ data: null }),
-    admin.from("canales_venta").select("nombre").eq("id_canal", sale.id_canal).maybeSingle(),
-    admin.from("usuarios").select("nombres, apellidos").eq("id_usuario", sale.id_usuario).maybeSingle(),
-  ]);
-  if (detailsError || paymentsError) throw new Error("No fue posible cargar el detalle del comprobante.");
+  try {
+    let sql = `
+      SELECT 
+        v.id_venta,
+        v.numero_venta,
+        v.fecha,
+        v.subtotal,
+        v.descuento,
+        v.iva,
+        v.total,
+        v.estado,
+        l.nombre AS local_nombre,
+        c.razon_social AS cliente_razon_social,
+        c.nombres AS cliente_nombres,
+        c.identificacion AS cliente_identificacion,
+        ch.nombre AS canal_nombre,
+        CONCAT(u.nombres, ' ', u.apellidos) AS vendedor_nombre
+      FROM ventas v
+      JOIN locales l ON l.id_local = v.id_local
+      LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
+      JOIN canales_venta ch ON ch.id_canal = v.id_canal
+      JOIN usuarios u ON u.id_usuario = v.id_usuario
+      WHERE v.id_venta = ?
+    `;
 
-  const variantIds = [...new Set((details ?? []).map((item) => item.id_variante))];
-  const paymentMethodIds = [...new Set((payments ?? []).map((item) => item.id_forma_pago))];
-  const [{ data: variants }, { data: methods }] = await Promise.all([
-    variantIds.length ? admin.from("variantes_producto").select("id_variante, id_producto, codigo_gs1").in("id_variante", variantIds) : Promise.resolve({ data: [] }),
-    paymentMethodIds.length ? admin.from("formas_pago").select("id_forma_pago, nombre").in("id_forma_pago", paymentMethodIds) : Promise.resolve({ data: [] }),
-  ]);
-  const productIds = [...new Set((variants ?? []).map((item) => item.id_producto))];
-  const { data: products } = productIds.length ? await admin.from("productos").select("id_producto, descripcion").in("id_producto", productIds) : { data: [] };
-  const variantMap = new Map((variants ?? []).map((item) => [item.id_variante, item]));
-  const productMap = new Map((products ?? []).map((item) => [item.id_producto, item.descripcion]));
-  const methodMap = new Map((methods ?? []).map((item) => [item.id_forma_pago, item.nombre]));
+    const params: unknown[] = [id];
 
-  return {
-    id_venta: sale.id_venta, numero_venta: sale.numero_venta || `#${sale.id_venta}`, fecha: sale.fecha,
-    local: location?.nombre ?? "Local", cliente: customer?.razon_social || customer?.nombres || "Consumidor final",
-    identificacion: customer?.identificacion ?? null, vendedor: seller ? `${seller.nombres} ${seller.apellidos}`.trim() : "Usuario",
-    canal: channel?.nombre ?? "Canal", subtotal: Number(sale.subtotal) || 0, descuento: Number(sale.descuento) || 0,
-    iva: Number(sale.iva) || 0, total: Number(sale.total) || 0, estado: sale.estado,
-    items: (details ?? []).map((item) => { const variant = variantMap.get(item.id_variante); return { id_detalle: item.id_detalle, producto: variant ? productMap.get(variant.id_producto) ?? "Producto" : "Producto", codigo_gs1: variant?.codigo_gs1 ?? "—", cantidad: Number(item.cantidad) || 0, precio_unitario: Number(item.precio_unitario) || 0, subtotal: Number(item.subtotal) || 0, iva: Number(item.iva) || 0, total: Number(item.total) || 0 }; }),
-    pagos: (payments ?? []).map((payment) => ({ id_pago: payment.id_pago, forma: methodMap.get(payment.id_forma_pago) ?? "Forma de pago", valor: Number(payment.valor) || 0, referencia: payment.referencia })),
-  };
-}
+    if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) {
+      sql += ` AND v.id_local = ?`;
+      params.push(context.id_local);
+    }
 
-export async function getSaleHistory(filters: SaleHistoryFilters) {
-  const context = await requirePermission("VENTA_VER");
-  const admin = createAdminClient();
-  const number = sanitizeSearch(filters.number ?? "");
-  const validDate = /^\d{4}-\d{2}-\d{2}$/;
-  let query = admin.from("ventas").select("id_venta, numero_venta, id_local, id_cliente, id_canal, id_usuario, fecha, total, estado").order("fecha", { ascending: false }).limit(200);
-  if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) query = query.eq("id_local", context.id_local);
-  if (context.perfil === ROLE_NAMES.ASESOR) query = query.eq("id_usuario", context.id_usuario);
-  if (filters.from && validDate.test(filters.from)) query = query.gte("fecha", `${filters.from}T00:00:00-05:00`);
-  if (filters.to && validDate.test(filters.to)) query = query.lte("fecha", `${filters.to}T23:59:59.999-05:00`);
-  if (filters.seller && Number.isInteger(filters.seller)) query = query.eq("id_usuario", filters.seller);
-  if (filters.channel && Number.isInteger(filters.channel)) query = query.eq("id_canal", filters.channel);
-  if (number) query = query.ilike("numero_venta", `%${number}%`);
-  const { data, error } = await query;
-  if (error) throw new Error("No fue posible cargar el historial de ventas.");
-  let rows = data ?? [];
-  const initialSaleIds = rows.map((sale) => sale.id_venta);
-  const { data: allPayments, error: paymentsError } = initialSaleIds.length ? await admin.from("pagos_venta").select("id_venta, id_forma_pago").in("id_venta", initialSaleIds) : { data: [], error: null };
-  if (paymentsError) throw new Error("No fue posible cargar las formas de pago del historial.");
-  if (filters.paymentMethod && Number.isInteger(filters.paymentMethod)) {
-    const matching = new Set((allPayments ?? []).filter((payment) => payment.id_forma_pago === filters.paymentMethod).map((payment) => payment.id_venta));
-    rows = rows.filter((sale) => matching.has(sale.id_venta));
+    if (context.perfil === ROLE_NAMES.ASESOR) {
+      sql += ` AND v.id_usuario = ?`;
+      params.push(context.id_usuario);
+    }
+
+    sql += ` LIMIT 1`;
+
+    const sale = await queryOne<ReceiptHeaderRaw>(sql, params);
+    if (!sale) return null;
+
+    const [details, payments] = await Promise.all([
+      query<ReceiptDetailRaw>(
+        `SELECT 
+           d.id_detalle,
+           d.cantidad,
+           d.precio_unitario,
+           d.subtotal,
+           d.iva,
+           d.total,
+           p.descripcion AS producto_descripcion,
+           COALESCE(vp.codigo_gs1, vp.codigo_interno, '—') AS codigo_gs1
+         FROM detalle_ventas d
+         JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+         JOIN productos p ON p.id_producto = vp.id_producto
+         WHERE d.id_venta = ?
+         ORDER BY d.id_detalle ASC`,
+        [id]
+      ),
+      query<ReceiptPaymentRaw>(
+        `SELECT 
+           pv.id_pago,
+           pv.valor,
+           pv.referencia,
+           fp.nombre AS forma_pago_nombre
+         FROM pagos_venta pv
+         JOIN formas_pago fp ON fp.id_forma_pago = pv.id_forma_pago
+         WHERE pv.id_venta = ?
+         ORDER BY pv.id_pago ASC`,
+        [id]
+      ),
+    ]);
+
+    const clienteNombre =
+      sale.cliente_razon_social || sale.cliente_nombres || "Consumidor final";
+
+    return {
+      id_venta: Number(sale.id_venta),
+      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+      fecha: String(sale.fecha),
+      local: sale.local_nombre ?? "Local",
+      cliente: clienteNombre,
+      identificacion: sale.cliente_identificacion ?? null,
+      canal: sale.canal_nombre ?? "Canal",
+      vendedor: sale.vendedor_nombre ?? "Usuario",
+      subtotal: Number(sale.subtotal) || 0,
+      descuento: Number(sale.descuento) || 0,
+      iva: Number(sale.iva) || 0,
+      total: Number(sale.total) || 0,
+      estado: sale.estado,
+      items: (details ?? []).map((d) => ({
+        id_detalle: Number(d.id_detalle),
+        producto: d.producto_descripcion,
+        descripcion: d.producto_descripcion,
+        codigo_gs1: d.codigo_gs1,
+        cantidad: Number(d.cantidad),
+        precio_unitario: Number(d.precio_unitario),
+        subtotal: Number(d.subtotal),
+        iva: Number(d.iva),
+        total: Number(d.total),
+      })),
+      pagos: (payments ?? []).map((p) => ({
+        id_pago: Number(p.id_pago),
+        forma: p.forma_pago_nombre ?? "Pago",
+        forma_pago: p.forma_pago_nombre ?? "Pago",
+        valor: Number(p.valor),
+        referencia: p.referencia ?? null,
+      })),
+    };
+  } catch (error) {
+    console.error("MySQL getSaleReceipt ERROR:", error);
+    throw new Error("No fue posible cargar el comprobante.");
   }
-  const localIds = [...new Set(rows.map((sale) => sale.id_local))];
-  const clientIds = [...new Set(rows.map((sale) => sale.id_cliente).filter((value): value is number => value !== null))];
-  const channelIds = [...new Set(rows.map((sale) => sale.id_canal))];
-  const userIds = [...new Set(rows.map((sale) => sale.id_usuario))];
-  const methodIds = [...new Set((allPayments ?? []).map((payment) => payment.id_forma_pago))];
-  const [{ data: locations }, { data: clients }, { data: channels }, { data: users }, { data: methods }, { data: sellerOptions }, { data: channelOptions }, { data: paymentOptions }] = await Promise.all([
-    localIds.length ? admin.from("locales").select("id_local, nombre").in("id_local", localIds) : Promise.resolve({ data: [] }),
-    clientIds.length ? admin.from("clientes").select("id_cliente, nombres, razon_social, identificacion").in("id_cliente", clientIds) : Promise.resolve({ data: [] }),
-    channelIds.length ? admin.from("canales_venta").select("id_canal, nombre").in("id_canal", channelIds) : Promise.resolve({ data: [] }),
-    userIds.length ? admin.from("usuarios").select("id_usuario, nombres, apellidos").in("id_usuario", userIds) : Promise.resolve({ data: [] }),
-    methodIds.length ? admin.from("formas_pago").select("id_forma_pago, nombre").in("id_forma_pago", methodIds) : Promise.resolve({ data: [] }),
-    admin.from("usuarios").select("id_usuario, nombres, apellidos, id_local").eq("activo", true).order("nombres"),
-    admin.from("canales_venta").select("id_canal, nombre").eq("activo", true).order("nombre"),
-    admin.from("formas_pago").select("id_forma_pago, nombre, codigo").eq("activo", true).neq("codigo", "MIXTO").order("nombre"),
-  ]);
-  const locationMap = new Map((locations ?? []).map((item) => [item.id_local, item.nombre]));
-  const clientMap = new Map((clients ?? []).map((item) => [item.id_cliente, item.razon_social || item.nombres || item.identificacion || "Cliente"]));
-  const channelMap = new Map((channels ?? []).map((item) => [item.id_canal, item.nombre]));
-  const userMap = new Map((users ?? []).map((item) => [item.id_usuario, `${item.nombres} ${item.apellidos}`.trim()]));
-  const methodMap = new Map((methods ?? []).map((item) => [item.id_forma_pago, item.nombre]));
-  const paymentMap = new Map<number, string[]>();
-  for (const payment of allPayments ?? []) paymentMap.set(payment.id_venta, [...(paymentMap.get(payment.id_venta) ?? []), methodMap.get(payment.id_forma_pago) ?? "Forma de pago"]);
-  const sales: SaleHistoryItem[] = rows.map((sale) => ({ id_venta: sale.id_venta, numero_venta: sale.numero_venta || `#${sale.id_venta}`, fecha: sale.fecha, local: locationMap.get(sale.id_local) ?? "Local", cliente: sale.id_cliente ? clientMap.get(sale.id_cliente) ?? "Cliente" : "Consumidor final", canal: channelMap.get(sale.id_canal) ?? "Canal", vendedor: userMap.get(sale.id_usuario) ?? "Usuario", total: Number(sale.total) || 0, estado: sale.estado, paymentMethods: [...new Set(paymentMap.get(sale.id_venta) ?? ["Sin registro"])].join(" + ") }));
-  const visibleSellers = (sellerOptions ?? []).filter((seller) => context.perfil === ROLE_NAMES.ADMINISTRADOR || context.perfil === ROLE_NAMES.VENTA_LOCAL && seller.id_local === context.id_local || seller.id_usuario === context.id_usuario);
-  return { sales, sellers: visibleSellers.map((seller) => ({ id: seller.id_usuario, name: `${seller.nombres} ${seller.apellidos}`.trim() })), channels: channelOptions ?? [], paymentMethods: paymentOptions ?? [] };
 }
+
+type SaleHistoryRowRaw = {
+  id_venta: number;
+  numero_venta: string | null;
+  fecha: Date | string;
+  local_nombre: string | null;
+  cliente_nombre: string | null;
+  canal_nombre: string | null;
+  vendedor_nombre: string | null;
+  total: number;
+  estado: string;
+  payment_methods_concat: string | null;
+};
+
+export async function getSaleHistory(searchParams: {
+  from?: string;
+  to?: string;
+  seller?: number;
+  channel?: number;
+  number?: string;
+  paymentMethod?: number;
+}) {
+  const context = await requirePermission("VENTA_VER");
+
+  const filterSchema = z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    seller: z.coerce.number().int().positive().optional(),
+    channel: z.coerce.number().int().positive().optional(),
+    number: z.string().optional(),
+    paymentMethod: z.coerce.number().int().positive().optional(),
+  });
+
+  const parsed = filterSchema.safeParse(searchParams);
+  const filters = parsed.success ? parsed.data : {};
+  const number = filters.number ? cleanSearch(filters.number) : "";
+
+  let sql = `
+    SELECT 
+      v.id_venta,
+      v.numero_venta,
+      v.fecha,
+      l.nombre AS local_nombre,
+      COALESCE(c.razon_social, c.nombres, c.identificacion, 'Consumidor final') AS cliente_nombre,
+      ch.nombre AS canal_nombre,
+      CONCAT(u.nombres, ' ', u.apellidos) AS vendedor_nombre,
+      v.total,
+      v.estado,
+      GROUP_CONCAT(DISTINCT fp.nombre SEPARATOR ', ') AS payment_methods_concat
+    FROM ventas v
+    JOIN locales l ON l.id_local = v.id_local
+    LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
+    JOIN canales_venta ch ON ch.id_canal = v.id_canal
+    JOIN usuarios u ON u.id_usuario = v.id_usuario
+    LEFT JOIN pagos_venta pv ON pv.id_venta = v.id_venta
+    LEFT JOIN formas_pago fp ON fp.id_forma_pago = pv.id_forma_pago
+  `;
+
+  const whereClauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) {
+    whereClauses.push(`v.id_local = ?`);
+    params.push(context.id_local);
+  }
+
+  if (context.perfil === ROLE_NAMES.ASESOR) {
+    whereClauses.push(`v.id_usuario = ?`);
+    params.push(context.id_usuario);
+  }
+
+  if (filters.from && validDate.test(filters.from)) {
+    whereClauses.push(`v.fecha >= ?`);
+    params.push(`${filters.from} 00:00:00`);
+  }
+
+  if (filters.to && validDate.test(filters.to)) {
+    whereClauses.push(`v.fecha <= ?`);
+    params.push(`${filters.to} 23:59:59`);
+  }
+
+  if (filters.seller && Number.isInteger(filters.seller)) {
+    whereClauses.push(`v.id_usuario = ?`);
+    params.push(filters.seller);
+  }
+
+  if (filters.channel && Number.isInteger(filters.channel)) {
+    whereClauses.push(`v.id_canal = ?`);
+    params.push(filters.channel);
+  }
+
+  if (number) {
+    whereClauses.push(`v.numero_venta LIKE ?`);
+    params.push(`%${number}%`);
+  }
+
+  if (filters.paymentMethod && Number.isInteger(filters.paymentMethod)) {
+    whereClauses.push(`EXISTS (SELECT 1 FROM pagos_venta pv2 WHERE pv2.id_venta = v.id_venta AND pv2.id_forma_pago = ?)`);
+    params.push(filters.paymentMethod);
+  }
+
+  if (whereClauses.length > 0) {
+    sql += ` WHERE ` + whereClauses.join(" AND ");
+  }
+
+  sql += ` GROUP BY v.id_venta ORDER BY v.fecha DESC LIMIT 200`;
+
+  try {
+    const [salesRows, sellerOptions, channelOptions, paymentOptions] = await Promise.all([
+      query<SaleHistoryRowRaw>(sql, params),
+      query<{ id_usuario: number; nombres: string; apellidos: string; id_local: number | null }>(
+        `SELECT id_usuario, nombres, apellidos, id_local FROM usuarios WHERE activo = 1 ORDER BY nombres ASC`
+      ),
+      query<{ id_canal: number; nombre: string }>(
+        `SELECT id_canal, nombre FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
+      ),
+      query<{ id_forma_pago: number; nombre: string; codigo: string }>(
+        `SELECT id_forma_pago, nombre, codigo FROM formas_pago WHERE activo = 1 AND codigo <> 'MIXTO' ORDER BY nombre ASC`
+      ),
+    ]);
+
+    const sales: SaleHistoryItem[] = salesRows.map((sale) => ({
+      id_venta: Number(sale.id_venta),
+      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+      fecha: String(sale.fecha),
+      local: sale.local_nombre ?? "Local",
+      cliente: sale.cliente_nombre ?? "Consumidor final",
+      canal: sale.canal_nombre ?? "Canal",
+      vendedor: sale.vendedor_nombre ?? "Usuario",
+      total: Number(sale.total) || 0,
+      estado: sale.estado,
+      paymentMethods: sale.payment_methods_concat || "Sin registro",
+    }));
+
+    const visibleSellers = (sellerOptions ?? []).filter(
+      (seller) =>
+        context.perfil === ROLE_NAMES.ADMINISTRADOR ||
+        (context.perfil === ROLE_NAMES.VENTA_LOCAL && seller.id_local === context.id_local) ||
+        seller.id_usuario === context.id_usuario
+    );
+
+    return {
+      sales,
+      sellers: visibleSellers.map((seller) => ({
+        id: seller.id_usuario,
+        name: `${seller.nombres} ${seller.apellidos}`.trim(),
+      })),
+      channels: channelOptions ?? [],
+      paymentMethods: paymentOptions ?? [],
+    };
+  } catch (error) {
+    console.error("MySQL getSaleHistory ERROR:", error);
+    throw new Error("No fue posible cargar el historial de ventas.");
+  }
+}
+
+type AuditRowRaw = {
+  id_auditoria: number;
+  usuario: number | null;
+  tabla_afectada: string;
+  accion: string;
+  valor_anterior: string | null;
+  valor_nuevo: string | null;
+  fecha: Date | string;
+  usuario_nombre: string | null;
+};
 
 export async function getSaleDetail(id: number) {
   const receipt = await getSaleReceipt(id);
   if (!receipt) return null;
-  const admin = createAdminClient();
-  const detailIds = receipt.items.map((item) => item.id_detalle);
-  const paymentIds = receipt.pagos.map((payment) => payment.id_pago);
-  const [{ data: saleAudit, error: saleError }, { data: detailAudit, error: detailError }, { data: paymentAudit, error: paymentError }] = await Promise.all([
-    admin.from("auditoria").select("id_auditoria, usuario, tabla_afectada, accion, valor_anterior, valor_nuevo, fecha").eq("tabla_afectada", "ventas").eq("registro_id", id),
-    detailIds.length ? admin.from("auditoria").select("id_auditoria, usuario, tabla_afectada, accion, valor_anterior, valor_nuevo, fecha").eq("tabla_afectada", "detalle_ventas").in("registro_id", detailIds) : Promise.resolve({ data: [], error: null }),
-    paymentIds.length ? admin.from("auditoria").select("id_auditoria, usuario, tabla_afectada, accion, valor_anterior, valor_nuevo, fecha").eq("tabla_afectada", "pagos_venta").in("registro_id", paymentIds) : Promise.resolve({ data: [], error: null }),
-  ]);
-  if (saleError || detailError || paymentError) throw new Error("No fue posible cargar la auditoría relacionada.");
-  const entries = [...(saleAudit ?? []), ...(detailAudit ?? []), ...(paymentAudit ?? [])].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  const userIds = [...new Set(entries.map((entry) => entry.usuario).filter((value): value is number => value !== null))];
-  const { data: users } = userIds.length ? await admin.from("usuarios").select("id_usuario, nombres, apellidos").in("id_usuario", userIds) : { data: [] };
-  const userMap = new Map((users ?? []).map((user) => [user.id_usuario, `${user.nombres} ${user.apellidos}`.trim()]));
-  const audit: SaleAuditEntry[] = entries.map((entry) => ({ id: entry.id_auditoria, action: entry.accion, table: entry.tabla_afectada, date: entry.fecha, user: entry.usuario ? userMap.get(entry.usuario) ?? `Usuario #${entry.usuario}` : "Sistema", previousValue: entry.valor_anterior as Record<string, unknown> | null, newValue: entry.valor_nuevo as Record<string, unknown> | null }));
-  return { ...receipt, audit };
+
+  try {
+    const detailIds = receipt.items.map((item) => item.id_detalle);
+    const paymentIds = receipt.pagos.map((payment) => payment.id_pago);
+
+    let auditSql = `
+      SELECT 
+        a.id_auditoria,
+        a.usuario,
+        a.tabla_afectada,
+        a.accion,
+        a.valor_anterior,
+        a.valor_nuevo,
+        a.fecha,
+        CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre
+      FROM auditoria a
+      LEFT JOIN usuarios u ON u.id_usuario = a.usuario
+      WHERE (a.tabla_afectada = 'ventas' AND a.registro_id = ?)
+    `;
+    const auditParams: unknown[] = [id];
+
+    if (detailIds.length > 0) {
+      const placeholders = detailIds.map(() => "?").join(", ");
+      auditSql += ` OR (a.tabla_afectada = 'detalle_ventas' AND a.registro_id IN (${placeholders}))`;
+      auditParams.push(...detailIds);
+    }
+
+    if (paymentIds.length > 0) {
+      const placeholders = paymentIds.map(() => "?").join(", ");
+      auditSql += ` OR (a.tabla_afectada = 'pagos_venta' AND a.registro_id IN (${placeholders}))`;
+      auditParams.push(...paymentIds);
+    }
+
+    auditSql += ` ORDER BY a.fecha DESC`;
+
+    const auditRows = await query<AuditRowRaw>(auditSql, auditParams);
+
+    const audit: SaleAuditEntry[] = auditRows.map((entry) => ({
+      id: Number(entry.id_auditoria),
+      action: entry.accion,
+      table: entry.tabla_afectada,
+      date: String(entry.fecha),
+      user: entry.usuario_nombre?.trim() || "Sistema",
+      previousValue: typeof entry.valor_anterior === "string" ? JSON.parse(entry.valor_anterior) : null,
+      newValue: typeof entry.valor_nuevo === "string" ? JSON.parse(entry.valor_nuevo) : null,
+    }));
+
+    return { ...receipt, audit };
+  } catch (error) {
+    console.error("MySQL getSaleDetail ERROR:", error);
+    throw new Error("No fue posible cargar el detalle de la venta.");
+  }
 }
 
 export async function getSaleWorkspaceContext() {
   const context = await requirePermission("VENTA_CREAR");
-  const admin = createAdminClient();
-  let locationsQuery = admin.from("locales").select("id_local, nombre").eq("activo", true).order("nombre");
-  if (context.perfil !== ROLE_NAMES.ADMINISTRADOR && context.id_local) locationsQuery = locationsQuery.eq("id_local", context.id_local);
-  const [{ data: locations, error }, { data: variants, error: variantsError }, { data: products, error: productsError }, { data: warehouses, error: warehousesError }, { data: stocks, error: stocksError }, { data: channels, error: channelsError }, { data: paymentMethods, error: paymentMethodsError }, { data: customers, error: customersError }] = await Promise.all([
-    locationsQuery,
-    admin.from("variantes_producto").select("id_variante, id_producto, codigo_interno, codigo_gs1, precio_venta, porcentaje_iva, imagen_url").eq("activo", true).order("codigo_interno"),
-    admin.from("productos").select("id_producto, descripcion").eq("activo", true),
-    admin.from("bodegas").select("id_bodega, id_local").eq("activo", true),
-    admin.from("stock_producto").select("id_variante, id_bodega, cantidad"),
-    admin.from("canales_venta").select("id_canal, codigo, nombre").eq("activo", true).order("id_canal"),
-    admin.from("formas_pago").select("id_forma_pago, codigo, nombre, requiere_referencia").eq("activo", true).order("id_forma_pago"),
-    admin.from("clientes").select("id_cliente, nombres, razon_social, identificacion").eq("activo", true).order("nombres").limit(200),
-  ]);
-  const requiredErrors = [error, variantsError, productsError, warehousesError, stocksError, channelsError, paymentMethodsError].filter(Boolean);
-  if (requiredErrors.length) {
-    console.error("SUPABASE sale workspace ERROR:", requiredErrors.map((item) => ({ code: item?.code, message: item?.message })));
-    throw new Error("No fue posible preparar la venta.");
+
+  let locationsSql = `SELECT id_local, nombre FROM locales WHERE activo = 1`;
+  const locationsParams: unknown[] = [];
+
+  if (context.perfil !== ROLE_NAMES.ADMINISTRADOR && context.id_local) {
+    locationsSql += ` AND id_local = ?`;
+    locationsParams.push(context.id_local);
   }
-  if (customersError) {
-    console.warn("SUPABASE optional customers WARNING:", customersError.code, customersError.message);
+  locationsSql += ` ORDER BY nombre ASC`;
+
+  try {
+    const [locations, variants, products, warehouses, stocks, channels, paymentMethods, customers] =
+      await Promise.all([
+        query<{ id_local: number; nombre: string }>(locationsSql, locationsParams),
+        query<{
+          id_variante: number;
+          id_producto: number;
+          codigo_gs1: string | null;
+          codigo_interno: string | null;
+          precio_venta: number;
+          porcentaje_iva: number;
+          stock_minimo: number;
+        }>(
+          `SELECT 
+             vp.id_variante,
+             vp.id_producto,
+             vp.codigo_gs1,
+             vp.codigo_interno,
+             vp.precio_venta,
+             vp.porcentaje_iva,
+             vp.stock_minimo
+           FROM variantes_producto vp
+           JOIN productos p ON p.id_producto = vp.id_producto
+           WHERE vp.activo = 1 AND p.activo = 1
+           ORDER BY vp.codigo_gs1 ASC`
+        ),
+        query<{ id_producto: number; descripcion: string; id_categoria: number; id_tipo: number }>(
+          `SELECT id_producto, descripcion, id_categoria, id_tipo FROM productos WHERE activo = 1`
+        ),
+        query<{ id_bodega: number; id_local: number; nombre: string }>(
+          `SELECT id_bodega, id_local, nombre FROM bodegas WHERE activo = 1`
+        ),
+        query<{ id_variante: number; id_bodega: number; cantidad: number }>(
+          `SELECT id_variante, id_bodega, cantidad FROM stock_producto WHERE cantidad > 0`
+        ),
+        query<{ id_canal: number; nombre: string; codigo: string }>(
+          `SELECT id_canal, nombre, codigo FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
+        ),
+        query<{ id_forma_pago: number; nombre: string; codigo: string; requiere_referencia: number | boolean }>(
+          `SELECT id_forma_pago, nombre, codigo, requiere_referencia FROM formas_pago WHERE activo = 1 ORDER BY nombre ASC`
+        ),
+        query<{
+          id_cliente: number;
+          identificacion: string;
+          nombres: string;
+          apellidos: string;
+          razon_social: string | null;
+        }>(
+          `SELECT id_cliente, identificacion, nombres, apellidos, razon_social FROM clientes WHERE activo = 1 ORDER BY nombres ASC LIMIT 100`
+        ),
+      ]);
+
+    const productMap = new Map((products ?? []).map((p) => [p.id_producto, p]));
+
+    const warehouseLocationMap = new Map((warehouses ?? []).map((w) => [w.id_bodega, w.id_local]));
+    const stockMapByVariantAndLocal = new Map<number, Record<number, number>>();
+    for (const s of stocks ?? []) {
+      const localId = warehouseLocationMap.get(s.id_bodega);
+      if (localId) {
+        if (!stockMapByVariantAndLocal.has(s.id_variante)) {
+          stockMapByVariantAndLocal.set(s.id_variante, {});
+        }
+        const rec = stockMapByVariantAndLocal.get(s.id_variante)!;
+        rec[localId] = (rec[localId] || 0) + Number(s.cantidad);
+      }
+    }
+
+    const mappedVariants: SaleProduct[] = (variants ?? []).map((v) => {
+      const prod = productMap.get(v.id_producto);
+      return {
+        id_variante: Number(v.id_variante),
+        id_producto: Number(v.id_producto),
+        codigo_gs1: v.codigo_gs1 || "",
+        codigo_interno: v.codigo_interno || "",
+        precio: Number(v.precio_venta),
+        precio_venta: Number(v.precio_venta),
+        porcentaje_iva: Number(v.porcentaje_iva),
+        stock_minimo: Number(v.stock_minimo),
+        producto: prod?.descripcion || "Producto",
+        id_categoria: prod?.id_categoria || 1,
+        id_tipo: prod?.id_tipo || 1,
+        stockPorLocal: stockMapByVariantAndLocal.get(Number(v.id_variante)) || {},
+      };
+    });
+
+    const mappedLocations: SaleLocation[] = locations ?? [];
+    const mappedWarehouses: SaleWarehouse[] = warehouses ?? [];
+    const mappedStocks: SaleStock[] = (stocks ?? []).map((s) => ({
+      id_variante: Number(s.id_variante),
+      id_bodega: Number(s.id_bodega),
+      cantidad: Number(s.cantidad),
+    }));
+    const mappedChannels: SaleChannel[] = channels ?? [];
+    const mappedPaymentMethods: SalePaymentMethod[] = (paymentMethods ?? []).map((pm) => ({
+      id_forma_pago: Number(pm.id_forma_pago),
+      nombre: pm.nombre,
+      codigo: pm.codigo,
+      requiere_referencia: Boolean(pm.requiere_referencia),
+    }));
+    const mappedCustomers: SaleCustomer[] = (customers ?? []).map((c) => {
+      const clientName = c.razon_social || `${c.nombres} ${c.apellidos}`.trim();
+      return {
+        id_cliente: Number(c.id_cliente),
+        identificacion: c.identificacion,
+        nombre: clientName,
+        name: clientName,
+      };
+    });
+
+    return {
+      locations: mappedLocations,
+      variants: mappedVariants,
+      products: mappedVariants,
+      warehouses: mappedWarehouses,
+      stocks: mappedStocks,
+      channels: mappedChannels,
+      paymentMethods: mappedPaymentMethods,
+      customers: mappedCustomers,
+      context,
+    };
+  } catch (error) {
+    console.error("MySQL getSaleWorkspaceContext ERROR:", error);
+    throw new Error("No fue posible preparar el espacio de venta.");
   }
-  const productNames = new Map((products ?? []).map((product) => [product.id_producto, product.descripcion]));
-  const warehouseLocations = new Map((warehouses ?? []).map((warehouse) => [warehouse.id_bodega, warehouse.id_local]));
-  const stockByVariant = new Map<number, Record<number, number>>();
-  for (const stock of stocks ?? []) {
-    const localId = warehouseLocations.get(stock.id_bodega);
-    if (!localId) continue;
-    const totals = stockByVariant.get(stock.id_variante) ?? {};
-    totals[localId] = (totals[localId] ?? 0) + (Number(stock.cantidad) || 0);
-    stockByVariant.set(stock.id_variante, totals);
-  }
-  const saleProducts: SaleProduct[] = (variants ?? []).flatMap((variant) => {
-    const producto = productNames.get(variant.id_producto);
-    const precio = Number(variant.precio_venta);
-    if (!producto || !Number.isFinite(precio) || precio <= 0) return [];
-    return [{ id_variante: variant.id_variante, id_producto: variant.id_producto, producto, codigo_interno: variant.codigo_interno, codigo_gs1: variant.codigo_gs1, precio, porcentaje_iva: Number(variant.porcentaje_iva) || 0, imagen_url: variant.imagen_url, stockPorLocal: stockByVariant.get(variant.id_variante) ?? {} }];
-  });
-  const saleCustomers: SaleCustomer[] = (customersError ? [] : customers ?? []).map((customer) => ({ id_cliente: customer.id_cliente, nombre: customer.razon_social || customer.nombres || customer.identificacion || "Cliente", identificacion: customer.identificacion }));
-  return { context, locations: locations ?? [], products: saleProducts, channels: (channels ?? []) as SaleChannel[], paymentMethods: (paymentMethods ?? []) as SalePaymentMethod[], customers: saleCustomers };
 }

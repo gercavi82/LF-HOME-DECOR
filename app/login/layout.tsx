@@ -2,17 +2,16 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { createClient } from "@/src/lib/supabase/server";
+import { validateCurrentSession } from "@/src/lib/auth/session";
 
 export const metadata: Metadata = {
   title: "Iniciar sesión",
 };
 
 export default async function LoginLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
+  const session = await validateCurrentSession();
 
-  if (data.user) {
+  if (session) {
     redirect("/dashboard");
   }
 

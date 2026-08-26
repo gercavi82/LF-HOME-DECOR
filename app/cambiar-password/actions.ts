@@ -3,8 +3,9 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { createAdminClient } from "@/src/lib/supabase/admin";
-import { createClient } from "@/src/lib/supabase/server";
+import { execute } from "@/src/lib/db/mysql";
+import { hashPassword } from "@/src/lib/auth/password";
+import { validateCurrentSession } from "@/src/lib/auth/session";
 import { recordAuditEvent } from "@/src/services/audit/audit";
 
 const passwordSchema = z
@@ -32,74 +33,39 @@ export async function changePasswordAction(
     return { error: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getUser();
+  const session = await validateCurrentSession();
 
-  if (error || !data.user) {
+  if (!session) {
     redirect("/login");
   }
 
-  const admin = createAdminClient();
-  const { data: internalUser, error: internalUserError } = await admin
-    .from("usuarios")
-    .select("id_usuario, cedula")
-    .eq("auth_user_id", data.user.id)
-    .maybeSingle();
-
-  if (internalUserError || !internalUser) {
-    if (internalUserError) {
-      console.error("SUPABASE changePassword user ERROR:", {
-        code: internalUserError.code,
-        message: internalUserError.message,
-        details: internalUserError.details,
-        hint: internalUserError.hint,
-      });
-    }
-    return { error: "No fue posible validar el usuario." };
-  }
-
-  if (parsed.data.password === internalUser.cedula) {
+  if (parsed.data.password === session.cedula) {
     return { error: "La nueva contraseña no puede ser igual a la cédula." };
   }
 
-  const { error: updateError } = await supabase.auth.updateUser({
-    password: parsed.data.password,
-  });
+  try {
+    const newPasswordHash = await hashPassword(parsed.data.password);
 
-  if (updateError) {
-    console.error("SUPABASE changePassword auth ERROR:", {
-      code: updateError.code,
-      message: updateError.message,
+    await execute(
+      `UPDATE usuarios 
+       SET password_hash = ?, 
+           debe_cambiar_password = 0, 
+           fecha_actualizacion = NOW() 
+       WHERE id_usuario = ?`,
+      [newPasswordHash, session.id_usuario]
+    );
+
+    await recordAuditEvent({
+      userId: session.id_usuario,
+      table: "auth",
+      action: "CAMBIO_PASSWORD",
+      recordId: session.id_usuario,
+      newValue: { tipo: "CAMBIO_OBLIGATORIO", resultado: "EXITOSO" },
     });
+  } catch (error) {
+    console.error("Change password ERROR:", error);
     return { error: "No fue posible actualizar la contraseña." };
   }
-
-  const { error: statusUpdateError } = await admin
-    .from("usuarios")
-    .update({
-      debe_cambiar_password: false,
-      fecha_actualizacion: new Date().toISOString(),
-    })
-    .eq("auth_user_id", data.user.id);
-
-  if (statusUpdateError) {
-    console.error("SUPABASE changePassword status ERROR:", {
-      code: statusUpdateError.code,
-      message: statusUpdateError.message,
-      details: statusUpdateError.details,
-      hint: statusUpdateError.hint,
-    });
-
-    return { error: "La contraseña cambió, pero no fue posible actualizar su estado." };
-  }
-
-  await recordAuditEvent({
-    userId: internalUser.id_usuario,
-    table: "auth",
-    action: "CAMBIO_PASSWORD",
-    recordId: internalUser.id_usuario,
-    newValue: { tipo: "CAMBIO_OBLIGATORIO", resultado: "EXITOSO" },
-  });
 
   redirect("/dashboard");
 }

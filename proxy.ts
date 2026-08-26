@@ -1,4 +1,4 @@
-import { updateSession } from "@/src/lib/supabase/proxy";
+import { updateSession } from "@/src/lib/auth/middleware-session";
 import type { NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
@@ -7,15 +7,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/dashboard/:path*",
-    "/alertas/:path*",
-    "/ventas/:path*",
-    "/productos/:path*",
-    "/inventario/:path*",
-    "/usuarios/:path*",
-    "/reportes/:path*",
-    "/configuracion/:path*",
-    "/cambiar-password/:path*",
-    "/prueba-supabase/:path*",
+    /*
+     * Coincide con todas las rutas de solicitud excepto las estáticas:
+     * - _next/static (archivos estáticos)
+     * - _next/image (optimización de imágenes)
+     * - favicon.ico (icono de favoritos)
+     * - uploads (archivos multimedia locales)
+     */
+    "/((?!_next/static|_next/image|favicon.ico|uploads|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

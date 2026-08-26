@@ -48,7 +48,7 @@ export default async function UserDetailPage({ params, searchParams }: {
           <div className="sm:col-span-2"><p className="text-xs uppercase tracking-wide text-lf-muted">Estado</p><div className="mt-2 flex flex-wrap gap-2"><Badge variant={user.activo ? "success" : "neutral"}>{user.activo ? "Activo" : "Inactivo"}</Badge><Badge variant={user.bloqueado ? "danger" : "success"}>{user.bloqueado ? "Bloqueado" : "Sin bloqueo"}</Badge><Badge variant={user.debe_cambiar_password ? "warning" : "info"}>{user.debe_cambiar_password ? "Cambio de contraseña pendiente" : "Contraseña actualizada"}</Badge><Badge>{user.intentos_fallidos} intento(s) fallido(s)</Badge></div></div>
         </CardContent></Card>
 
-        <Card><CardContent className="pt-5 sm:pt-6"><h2 className="font-semibold">Acciones administrativas</h2><p className="mt-2 text-sm leading-6 text-lf-muted">Los cambios de estado invalidan el acceso en la siguiente verificación de sesión.</p><div className="mt-5"><UserAdminActions id={user.id_usuario} authUserId={user.auth_user_id} active={user.activo} blocked={user.bloqueado} /></div></CardContent></Card>
+        <Card><CardContent className="pt-5 sm:pt-6"><h2 className="font-semibold">Acciones administrativas</h2><p className="mt-2 text-sm leading-6 text-lf-muted">Los cambios de estado invalidan el acceso en la siguiente verificación de sesión.</p><div className="mt-5"><UserAdminActions id={user.id_usuario} active={user.activo} blocked={user.bloqueado} /></div></CardContent></Card>
       </div>
     </ContentContainer>
   );

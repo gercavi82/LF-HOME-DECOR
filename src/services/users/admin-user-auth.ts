@@ -1,11 +1,10 @@
 import "server-only";
 
 import { z } from "zod";
-
-import { createAdminClient } from "@/src/lib/supabase/admin";
+import { execute, queryOne } from "@/src/lib/db/mysql";
+import { hashPassword } from "@/src/lib/auth/password";
 import {
-  requireAuthContext,
-  ROLE_NAMES,
+  requirePermission,
 } from "@/src/services/auth/authorization";
 
 const cedulaSchema = z.string().trim().regex(/^\d{10}$/);
@@ -23,16 +22,8 @@ const createUserSchema = z.object({
 
 export type CreateInternalUserInput = z.infer<typeof createUserSchema>;
 
-async function requireAdministrator() {
-  const context = await requireAuthContext();
-
-  if (context.perfil !== ROLE_NAMES.ADMINISTRADOR) {
-    throw new Error("No autorizado.");
-  }
-}
-
 export async function createInternalUser(input: CreateInternalUserInput) {
-  await requireAdministrator();
+  await requirePermission("USUARIO_CREAR");
 
   const parsed = createUserSchema.safeParse(input);
 
@@ -40,97 +31,86 @@ export async function createInternalUser(input: CreateInternalUserInput) {
     throw new Error("Datos de usuario inválidos.");
   }
 
-  const admin = createAdminClient();
   const user = parsed.data;
-  const { data: authData, error: authError } =
-    await admin.auth.admin.createUser({
-      email: user.correo,
-      password: user.cedula,
-      email_confirm: true,
-    });
 
-  if (authError || !authData.user) {
-    throw new Error("No fue posible crear la cuenta de acceso.");
-  }
+  // La contraseña inicial es la cédula del usuario, hasheada con bcrypt
+  const initialPasswordHash = await hashPassword(user.cedula);
 
-  const { data: internalUser, error: internalUserError } = await admin
-    .from("usuarios")
-    .insert({
-      auth_user_id: authData.user.id,
+  try {
+    const result = await execute(
+      `INSERT INTO usuarios (
+         cedula,
+         correo,
+         nombres,
+         apellidos,
+         id_perfil,
+         id_local,
+         telefono,
+         password_hash,
+         activo,
+         bloqueado,
+         debe_cambiar_password,
+         intentos_fallidos,
+         fecha_creacion
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 1, 0, NOW())`,
+      [
+        user.cedula,
+        user.correo,
+        user.nombres,
+        user.apellidos,
+        user.id_perfil,
+        user.id_local,
+        user.telefono ?? null,
+        initialPasswordHash,
+      ]
+    );
+
+    return {
+      id_usuario: result.insertId,
       cedula: user.cedula,
       correo: user.correo,
-      nombres: user.nombres,
-      apellidos: user.apellidos,
-      id_perfil: user.id_perfil,
-      id_local: user.id_local,
-      telefono: user.telefono ?? null,
-      activo: true,
-      bloqueado: false,
-      debe_cambiar_password: true,
-      intentos_fallidos: 0,
-    })
-    .select("id_usuario, auth_user_id")
-    .single();
-
-  if (internalUserError) {
-    const { error: rollbackError } =
-      await admin.auth.admin.deleteUser(authData.user.id);
-
-    if (rollbackError) {
-      console.error("SUPABASE createInternalUser rollback ERROR:", {
-        code: rollbackError.code,
-        message: rollbackError.message,
-      });
+    };
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string };
+    if (err.code === "ER_DUP_ENTRY") {
+      throw new Error("Ya existe un usuario con esa cédula o correo electrónico.");
     }
-
+    console.error("MySQL createInternalUser ERROR:", error);
     throw new Error("No fue posible crear el usuario interno.");
   }
-
-  return internalUser;
 }
 
-export async function resetInternalUserPassword(authUserId: string) {
-  await requireAdministrator();
+export async function resetInternalUserPassword(userId: number) {
+  await requirePermission("USUARIO_EDITAR");
 
-  const parsedAuthUserId = z.string().uuid().safeParse(authUserId);
+  const internalUser = await queryOne<{ id_usuario: number; cedula: string }>(
+    `SELECT id_usuario, cedula FROM usuarios WHERE id_usuario = ? LIMIT 1`,
+    [userId]
+  );
 
-  if (!parsedAuthUserId.success) {
-    throw new Error("Usuario inválido.");
-  }
-
-  const admin = createAdminClient();
-  const { data: internalUser, error: lookupError } = await admin
-    .from("usuarios")
-    .select("id_usuario, cedula")
-    .eq("auth_user_id", parsedAuthUserId.data)
-    .maybeSingle();
-
-  if (lookupError || !internalUser) {
+  if (!internalUser) {
     throw new Error("No fue posible encontrar el usuario.");
   }
 
-  const { error: authError } = await admin.auth.admin.updateUserById(
-    parsedAuthUserId.data,
-    { password: internalUser.cedula },
+  // Restablecer contraseña a la cédula
+  const resetPasswordHash = await hashPassword(internalUser.cedula);
+
+  await execute(
+    `UPDATE usuarios 
+     SET password_hash = ?, 
+         debe_cambiar_password = 1, 
+         intentos_fallidos = 0, 
+         bloqueado = 0, 
+         fecha_actualizacion = NOW() 
+     WHERE id_usuario = ?`,
+    [resetPasswordHash, internalUser.id_usuario]
   );
 
-  if (authError) {
-    throw new Error("No fue posible restablecer la contraseña temporal.");
-  }
-
-  const { error: updateError } = await admin
-    .from("usuarios")
-    .update({
-      debe_cambiar_password: true,
-      intentos_fallidos: 0,
-      bloqueado: false,
-      fecha_actualizacion: new Date().toISOString(),
-    })
-    .eq("id_usuario", internalUser.id_usuario);
-
-  if (updateError) {
-    throw new Error("La contraseña cambió, pero no fue posible actualizar su estado.");
-  }
+  // Revocar sesiones activas del usuario para forzar re-inicio con la nueva clave temporal
+  await execute(
+    `UPDATE sesiones_usuario SET revocada = 1 WHERE id_usuario = ?`,
+    [internalUser.id_usuario]
+  );
 
   return {
     message: "La contraseña temporal fue restablecida a la cédula del usuario.",
