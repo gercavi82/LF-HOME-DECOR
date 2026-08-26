@@ -1,38 +1,48 @@
-import { Receipt } from "lucide-react";
+import { Calendar, Filter, Receipt, RotateCcw, TrendingUp, Layers } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
-import { getCommissionsSummary } from "@/src/services/commissions/commissions";
-import { listExpenses } from "@/src/services/expenses/expenses";
+import { getFinancialReport } from "@/src/services/reports/reports";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
+
+const MONTHS_LIST = [
+  { value: "01", label: "01 - Enero" },
+  { value: "02", label: "02 - Febrero" },
+  { value: "03", label: "03 - Marzo" },
+  { value: "04", label: "04 - Abril" },
+  { value: "05", label: "05 - Mayo" },
+  { value: "06", label: "06 - Junio" },
+  { value: "07", label: "07 - Julio" },
+  { value: "08", label: "08 - Agosto" },
+  { value: "09", label: "09 - Septiembre" },
+  { value: "10", label: "10 - Octubre" },
+  { value: "11", label: "11 - Noviembre" },
+  { value: "12", label: "12 - Diciembre" },
+];
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string }>;
+  searchParams: Promise<{ anio?: string; mes?: string; tipo?: string }>;
 }) {
-  const { mes = "" } = await searchParams;
+  const { anio = "", mes = "", tipo = "" } = await searchParams;
 
-  const [{ advisors, totals: commTotals }, { summary: expSummary }] = await Promise.all([
-    getCommissionsSummary(mes),
-    listExpenses({ month: mes }),
-  ]);
+  const data = await getFinancialReport({
+    year: anio,
+    month: mes,
+    tipoId: tipo,
+  });
 
-  // Cálculos Financieros Consolidados
-  const totalVentas = commTotals.ventas;
-  const totalCostosMercaderia = commTotals.costos;
-  const utilidadBruta = commTotals.utilidad;
-  const totalGastosOperativos = expSummary.total;
-  const utilidadNetaReal = utilidadBruta - totalGastosOperativos;
+  const hasActiveFilters = Boolean(anio || mes || tipo);
 
   return (
     <ContentContainer>
       <PageHeader
         eyebrow="Consolidado financiero"
         title="Reportes y comisiones"
-        description="Estado de resultados, comisiones por asesor (60% / 40%) y utilidad neta real del negocio."
+        description="Estado de resultados, desglose por meses/años, tipos de productos y liquidación por asesor."
         actions={
           <div className="flex gap-2">
             <Link
@@ -45,28 +55,109 @@ export default async function ReportsPage({
         }
       />
 
-      {/* Tarjetas de Resumen Financiero */}
+      {/* Barra de Filtros por Año, Mes y Tipo */}
+      <form method="GET" className="mb-6 rounded-2xl border bg-lf-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Filtro Año */}
+          <label className="block flex-1 min-w-[140px]">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Año
+            </span>
+            <select
+              name="anio"
+              defaultValue={anio}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los años</option>
+              {data.availableYears.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Filtro Mes */}
+          <label className="block flex-1 min-w-[160px]">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Mes
+            </span>
+            <select
+              name="mes"
+              defaultValue={mes}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los meses</option>
+              {MONTHS_LIST.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Filtro Tipo de Producto */}
+          <label className="block flex-1 min-w-[180px]">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Tipo de producto
+            </span>
+            <select
+              name="tipo"
+              defaultValue={tipo}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los tipos</option>
+              {data.availableTypes.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Botones de acción */}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-lf-navy px-4 text-sm font-semibold text-white hover:bg-lf-navy-hover"
+            >
+              <Filter size={15} /> Filtrar
+            </button>
+            {hasActiveFilters ? (
+              <Link
+                href="/reportes"
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl border bg-lf-surface-muted px-3 text-sm font-medium text-lf-muted hover:text-lf-navy"
+                title="Limpiar filtros"
+              >
+                <RotateCcw size={15} /> Limpiar
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </form>
+
+      {/* Tarjetas de Resumen Financiero Filtrado */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-l-4 border-l-lf-navy">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Ventas Totales</p>
-            <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(totalVentas)}</p>
-            <p className="mt-1 text-xs text-lf-muted">{commTotals.unidades} unidades vendidas</p>
+            <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(data.kpis.totalVentas)}</p>
+            <p className="mt-1 text-xs text-lf-muted">{data.kpis.totalUnidades} unidades vendidas</p>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-amber-500">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Utilidad Bruta (Ventas − Costo)</p>
-            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(utilidadBruta)}</p>
-            <p className="mt-1 text-xs text-lf-muted">Costo mercadería: {currency.format(totalCostosMercaderia)}</p>
+            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(data.kpis.utilidadBruta)}</p>
+            <p className="mt-1 text-xs text-lf-muted">Costo mercadería: {currency.format(data.kpis.totalCostos)}</p>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-rose-500">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Operativos & Local</p>
-            <p className="mt-1 text-2xl font-bold text-rose-700">{currency.format(totalGastosOperativos)}</p>
+            <p className="mt-1 text-2xl font-bold text-rose-700">{currency.format(data.kpis.gastosOperativos)}</p>
             <p className="mt-1 text-xs text-lf-muted">Fijos, mejoras y marketing</p>
           </CardContent>
         </Card>
@@ -74,27 +165,136 @@ export default async function ReportsPage({
         <Card className="border-l-4 border-l-emerald-600 bg-emerald-50/30">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Utilidad Neta Real</p>
-            <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(utilidadNetaReal)}</p>
+            <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(data.kpis.utilidadNetaReal)}</p>
             <p className="mt-1 text-xs text-emerald-600">Margen neto operativo</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Sección de Comisiones de Asesores */}
-      <div className="space-y-4">
+      {/* SECCIÓN 1: VENTAS POR MES Y AÑO */}
+      <div className="mb-8 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
+              <Calendar size={19} className="text-lf-terracotta" /> Ventas y Utilidad por Mes y Año
+            </h2>
+            <p className="text-sm text-lf-muted">Evolución mensual de ventas, costo de mercadería y comisiones generadas.</p>
+          </div>
+        </div>
+
+        <TableContainer>
+          <Table>
+            <thead>
+              <tr>
+                <TableHead>Período (Mes / Año)</TableHead>
+                <TableHead className="text-center">Unidades</TableHead>
+                <TableHead className="text-right">Venta Total</TableHead>
+                <TableHead className="text-right">Costo Mercadería</TableHead>
+                <TableHead className="text-right">Utilidad Bruta</TableHead>
+                <TableHead className="text-right">Comisión Asesores (60%)</TableHead>
+                <TableHead className="text-right">Participación Local (40%)</TableHead>
+              </tr>
+            </thead>
+            <tbody>
+              {data.monthlyBreakdown.map((m) => (
+                <tr key={m.year_month} className="hover:bg-lf-surface-muted/60">
+                  <TableCell className="font-semibold text-lf-navy">{m.label}</TableCell>
+                  <TableCell className="text-center font-bold">{m.unidades}</TableCell>
+                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.total_ventas)}</TableCell>
+                  <TableCell className="text-right text-lf-muted">{currency.format(m.total_costo)}</TableCell>
+                  <TableCell className="text-right font-semibold text-amber-700">{currency.format(m.utilidad)}</TableCell>
+                  <TableCell className="text-right font-bold text-emerald-700">{currency.format(m.comision_asesores)}</TableCell>
+                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.comision_local)}</TableCell>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
+                <TableCell>TOTAL PERÍODOS</TableCell>
+                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.totalVentas)}</TableCell>
+                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
+                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesLocal)}</TableCell>
+              </tr>
+            </tfoot>
+          </Table>
+        </TableContainer>
+      </div>
+
+      {/* SECCIÓN 2: VENTAS POR TIPO DE PRODUCTO */}
+      <div className="mb-8 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
+              <Layers size={19} className="text-lf-terracotta" /> Ventas por Tipo de Producto
+            </h2>
+            <p className="text-sm text-lf-muted">Desglose de rendimiento por líneas de productos (Cobertores, Sábanas, Cubrecolchones, etc.).</p>
+          </div>
+        </div>
+
+        <TableContainer>
+          <Table>
+            <thead>
+              <tr>
+                <TableHead>Tipo de Producto</TableHead>
+                <TableHead>Categoría</TableHead>
+                <TableHead className="text-center">Unidades</TableHead>
+                <TableHead className="text-right">Venta Total</TableHead>
+                <TableHead className="text-right">Costo Estimado</TableHead>
+                <TableHead className="text-right">Utilidad Generada</TableHead>
+                <TableHead className="text-center">Margen %</TableHead>
+              </tr>
+            </thead>
+            <tbody>
+              {data.typeBreakdown.map((t) => (
+                <tr key={`${t.tipo}-${t.categoria}`} className="hover:bg-lf-surface-muted/60">
+                  <TableCell className="font-semibold text-lf-navy">{t.tipo}</TableCell>
+                  <TableCell className="text-sm text-lf-muted">{t.categoria}</TableCell>
+                  <TableCell className="text-center font-bold">{t.unidades}</TableCell>
+                  <TableCell className="text-right font-medium text-lf-navy">{currency.format(t.total_ventas)}</TableCell>
+                  <TableCell className="text-right text-lf-muted">{currency.format(t.total_costo)}</TableCell>
+                  <TableCell className="text-right font-semibold text-amber-700">{currency.format(t.utilidad)}</TableCell>
+                  <TableCell className="text-center">
+                    <span className="inline-block rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800">
+                      {t.margen_porcentaje}%
+                    </span>
+                  </TableCell>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
+                <TableCell colSpan={2}>TOTAL PRODUCTOS</TableCell>
+                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.totalVentas)}</TableCell>
+                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
+                <TableCell className="text-center">—</TableCell>
+              </tr>
+            </tfoot>
+          </Table>
+        </TableContainer>
+      </div>
+
+      {/* SECCIÓN 3: LIQUIDACIÓN DE COMISIONES POR ASESOR */}
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-lf-navy">Liquidación de Comisiones por Asesor</h2>
-            <p className="text-sm text-lf-muted">Participación del 60% para el Asesor y 40% para el Local sobre la utilidad generada.</p>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
+              <TrendingUp size={19} className="text-lf-terracotta" /> Liquidación de Comisiones por Asesor
+            </h2>
+            <p className="text-sm text-lf-muted">Participación del 60% para el Asesor y 40% para el Local según los filtros seleccionados.</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-xl border bg-lf-surface px-3 py-1.5 text-xs">
               <span className="font-semibold text-emerald-700">Pagado: </span>
-              <strong>{currency.format(commTotals.pagado)}</strong>
+              <strong>{currency.format(data.kpis.comisionesPagadas)}</strong>
             </div>
             <div className="rounded-xl border bg-amber-50 px-3 py-1.5 text-xs">
               <span className="font-semibold text-amber-800">Pendiente: </span>
-              <strong>{currency.format(commTotals.pendiente)}</strong>
+              <strong>{currency.format(data.kpis.comisionesPendientes)}</strong>
             </div>
           </div>
         </div>
@@ -114,7 +314,7 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {advisors.map((adv) => (
+              {data.advisors.map((adv) => (
                 <tr key={adv.id_usuario} className="hover:bg-lf-surface-muted/60">
                   <TableCell>
                     <p className="font-semibold text-lf-navy">{adv.asesor}</p>
@@ -136,13 +336,13 @@ export default async function ReportsPage({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
-                <TableCell>TOTAL CONSOLIDADO</TableCell>
-                <TableCell className="text-right">{currency.format(commTotals.ventas)}</TableCell>
-                <TableCell className="text-right text-lf-muted">{currency.format(commTotals.costos)}</TableCell>
-                <TableCell className="text-right text-amber-700">{currency.format(commTotals.utilidad)}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(commTotals.comision_local)}</TableCell>
-                <TableCell className="text-right text-emerald-700">{currency.format(commTotals.comision_asesor)}</TableCell>
-                <TableCell className="text-center">{commTotals.unidades}</TableCell>
+                <TableCell>TOTAL ASESORES</TableCell>
+                <TableCell className="text-right">{currency.format(data.kpis.totalVentas)}</TableCell>
+                <TableCell className="text-right text-lf-muted">{currency.format(data.kpis.totalCostos)}</TableCell>
+                <TableCell className="text-right text-amber-700">{currency.format(data.kpis.utilidadBruta)}</TableCell>
+                <TableCell className="text-right text-lf-navy">{currency.format(data.kpis.comisionesLocal)}</TableCell>
+                <TableCell className="text-right text-emerald-700">{currency.format(data.kpis.comisionesAsesores)}</TableCell>
+                <TableCell className="text-center">{data.kpis.totalUnidades}</TableCell>
                 <TableCell className="text-center">—</TableCell>
               </tr>
             </tfoot>

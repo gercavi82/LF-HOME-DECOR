@@ -17,7 +17,27 @@ export type SaleListItem = {
   canal: string;
   vendedor: string;
   total: number;
+  utilidad: number;
+  comision_asesor: number; // 60%
+  comision_local: number;  // 40%
+  unidades: number;
+  observaciones?: string | null;
   estado: string;
+};
+
+export type SalesFilterParams = {
+  q?: string;
+  asesorId?: string;
+  localId?: string;
+  mes?: string;
+};
+
+export type SalesSummary = {
+  totalVentas: number;
+  totalUtilidad: number;
+  totalComisionAsesor: number;
+  totalComisionLocal: number;
+  totalUnidades: number;
 };
 
 export type SaleReceiptItem = {
@@ -114,15 +134,27 @@ type SaleListRowRaw = {
   vendedor_nombre: string | null;
   total: number;
   estado: string;
+  observaciones: string | null;
+  unidades: number;
 };
 
-export async function listSales(search = ""): Promise<{
+export async function listSales(filtersInput?: string | SalesFilterParams): Promise<{
   sales: SaleListItem[];
+  summary: SalesSummary;
+  advisors: Array<{ id: number; nombre: string }>;
+  locales: Array<{ id: number; nombre: string }>;
   count: number;
   context: AuthContext;
 }> {
   const context = await requirePermission("VENTA_VER");
-  const normalized = cleanSearch(search);
+
+  const filterParams: SalesFilterParams =
+    typeof filtersInput === "string" ? { q: filtersInput } : filtersInput || {};
+
+  const normalized = filterParams.q ? cleanSearch(filterParams.q) : "";
+  const selectedAsesorId = filterParams.asesorId ? Number(filterParams.asesorId) : null;
+  const selectedLocalId = filterParams.localId ? Number(filterParams.localId) : null;
+  const selectedMes = filterParams.mes?.trim() || "";
 
   let sql = `
     SELECT 
@@ -134,12 +166,15 @@ export async function listSales(search = ""): Promise<{
       ch.nombre AS canal_nombre,
       CONCAT(u.nombres, ' ', u.apellidos) AS vendedor_nombre,
       v.total,
-      v.estado
+      v.observaciones,
+      v.estado,
+      COALESCE(SUM(d.cantidad), 1) AS unidades
     FROM ventas v
     JOIN locales l ON l.id_local = v.id_local
     LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
     JOIN canales_venta ch ON ch.id_canal = v.id_canal
     JOIN usuarios u ON u.id_usuario = v.id_usuario
+    LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
   `;
 
   const whereClauses: string[] = [];
@@ -148,40 +183,86 @@ export async function listSales(search = ""): Promise<{
   if (context.perfil === ROLE_NAMES.VENTA_LOCAL && context.id_local) {
     whereClauses.push(`v.id_local = ?`);
     params.push(context.id_local);
+  } else if (selectedLocalId && selectedLocalId > 0) {
+    whereClauses.push(`v.id_local = ?`);
+    params.push(selectedLocalId);
   }
 
   if (context.perfil === ROLE_NAMES.ASESOR) {
     whereClauses.push(`v.id_usuario = ?`);
     params.push(context.id_usuario);
+  } else if (selectedAsesorId && selectedAsesorId > 0) {
+    whereClauses.push(`v.id_usuario = ?`);
+    params.push(selectedAsesorId);
+  }
+
+  if (selectedMes && /^\d{4}-\d{2}$/.test(selectedMes)) {
+    whereClauses.push(`DATE_FORMAT(v.fecha, '%Y-%m') = ?`);
+    params.push(selectedMes);
   }
 
   if (normalized) {
-    whereClauses.push(`v.numero_venta LIKE ?`);
-    params.push(`%${normalized}%`);
+    whereClauses.push(`(v.numero_venta LIKE ? OR c.nombres LIKE ? OR c.razon_social LIKE ?)`);
+    params.push(`%${normalized}%`, `%${normalized}%`, `%${normalized}%`);
   }
 
   if (whereClauses.length > 0) {
     sql += ` WHERE ` + whereClauses.join(" AND ");
   }
 
-  sql += ` ORDER BY v.fecha DESC LIMIT 50`;
+  sql += ` GROUP BY v.id_venta ORDER BY v.fecha DESC LIMIT 150`;
 
   try {
-    const rows = await query<SaleListRowRaw>(sql, params);
+    const [rows, advisorRows, localRows] = await Promise.all([
+      query<SaleListRowRaw>(sql, params),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) ORDER BY nombres ASC`
+      ),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_local AS id, nombre FROM locales WHERE activo = 1 ORDER BY nombre ASC`
+      ),
+    ]);
 
-    const mapped: SaleListItem[] = rows.map((sale) => ({
-      id_venta: Number(sale.id_venta),
-      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
-      fecha: String(sale.fecha),
-      local: sale.local_nombre ?? "Local",
-      cliente: sale.cliente_nombre ?? "Consumidor final",
-      canal: sale.canal_nombre ?? "Canal",
-      vendedor: sale.vendedor_nombre ?? "Usuario",
-      total: Number(sale.total) || 0,
-      estado: sale.estado,
-    }));
+    const mapped: SaleListItem[] = (rows ?? []).map((sale) => {
+      const total = Number(sale.total) || 0;
+      const utilidad = Number((total * 0.327).toFixed(2));
+      const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
 
-    return { sales: mapped, count: mapped.length, context };
+      return {
+        id_venta: Number(sale.id_venta),
+        numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+        fecha: String(sale.fecha),
+        local: sale.local_nombre ?? "Local",
+        cliente: sale.cliente_nombre ?? "Consumidor final",
+        canal: sale.canal_nombre ?? "Canal",
+        vendedor: sale.vendedor_nombre ?? "Usuario",
+        total,
+        utilidad,
+        comision_asesor: comisionAsesor,
+        comision_local: comisionLocal,
+        unidades: Number(sale.unidades) || 1,
+        observaciones: sale.observaciones,
+        estado: sale.estado,
+      };
+    });
+
+    const summary: SalesSummary = {
+      totalVentas: mapped.reduce((sum, s) => sum + s.total, 0),
+      totalUtilidad: mapped.reduce((sum, s) => sum + s.utilidad, 0),
+      totalComisionAsesor: mapped.reduce((sum, s) => sum + s.comision_asesor, 0),
+      totalComisionLocal: mapped.reduce((sum, s) => sum + s.comision_local, 0),
+      totalUnidades: mapped.reduce((sum, s) => sum + s.unidades, 0),
+    };
+
+    return {
+      sales: mapped,
+      summary,
+      advisors: (advisorRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
+      locales: (localRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
+      count: mapped.length,
+      context,
+    };
   } catch (error) {
     console.error("MySQL listSales ERROR:", error);
     throw new Error("No fue posible cargar las ventas.");
@@ -463,18 +544,29 @@ export async function getSaleHistory(searchParams: {
       ),
     ]);
 
-    const sales: SaleHistoryItem[] = salesRows.map((sale) => ({
-      id_venta: Number(sale.id_venta),
-      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
-      fecha: String(sale.fecha),
-      local: sale.local_nombre ?? "Local",
-      cliente: sale.cliente_nombre ?? "Consumidor final",
-      canal: sale.canal_nombre ?? "Canal",
-      vendedor: sale.vendedor_nombre ?? "Usuario",
-      total: Number(sale.total) || 0,
-      estado: sale.estado,
-      paymentMethods: sale.payment_methods_concat || "Sin registro",
-    }));
+    const sales: SaleHistoryItem[] = salesRows.map((sale) => {
+      const total = Number(sale.total) || 0;
+      const utilidad = Number((total * 0.327).toFixed(2));
+      const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
+
+      return {
+        id_venta: Number(sale.id_venta),
+        numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+        fecha: String(sale.fecha),
+        local: sale.local_nombre ?? "Local",
+        cliente: sale.cliente_nombre ?? "Consumidor final",
+        canal: sale.canal_nombre ?? "Canal",
+        vendedor: sale.vendedor_nombre ?? "Usuario",
+        total,
+        utilidad,
+        comision_asesor: comisionAsesor,
+        comision_local: comisionLocal,
+        unidades: 1,
+        estado: sale.estado,
+        paymentMethods: sale.payment_methods_concat || "Sin registro",
+      };
+    });
 
     const visibleSellers = (sellerOptions ?? []).filter(
       (seller) =>
