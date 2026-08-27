@@ -38,6 +38,8 @@ export type SalesSummary = {
   totalUtilidad: number;
   totalComisionAsesor: number;
   totalComisionLocal: number;
+  totalGastos: number;
+  saldoComisionLocal: number;
   totalUnidades: number;
 };
 
@@ -214,15 +216,29 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   sql += ` GROUP BY v.id_venta ORDER BY v.fecha DESC LIMIT 150`;
 
   try {
-    const [rows, advisorRows, localRows] = await Promise.all([
+    let expenseSql = `SELECT COALESCE(SUM(monto), 0) AS total_gastos FROM gastos WHERE activo = 1`;
+    const expenseParams: unknown[] = [];
+    if (selectedMes && /^\d{4}-\d{2}$/.test(selectedMes)) {
+      expenseSql += ` AND DATE_FORMAT(fecha, '%Y-%m') = ?`;
+      expenseParams.push(selectedMes);
+    }
+    if (selectedLocalId && selectedLocalId > 0) {
+      expenseSql += ` AND (id_local = ? OR id_local IS NULL)`;
+      expenseParams.push(selectedLocalId);
+    }
+
+    const [rows, advisorRows, localRows, expenseRows] = await Promise.all([
       query<SaleListRowRaw>(sql, params),
       query<{ id: number; nombre: string }>(
-        `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) ORDER BY nombres ASC`
+        `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
       ),
       query<{ id: number; nombre: string }>(
         `SELECT id_local AS id, nombre FROM locales WHERE activo = 1 ORDER BY nombre ASC`
       ),
+      query<{ total_gastos: number }>(expenseSql, expenseParams).catch(() => [{ total_gastos: 0 }]),
     ]);
+
+    const totalGastos = Number(expenseRows?.[0]?.total_gastos) || 0;
 
     const mapped: SaleListItem[] = (rows ?? []).map((sale) => {
       const total = Number(sale.total) || 0;
@@ -248,11 +264,16 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       };
     });
 
+    const totalComisionLocal = Number(mapped.reduce((sum, s) => sum + s.comision_local, 0).toFixed(2));
+    const saldoComisionLocal = Number((totalComisionLocal - totalGastos).toFixed(2));
+
     const summary: SalesSummary = {
-      totalVentas: mapped.reduce((sum, s) => sum + s.total, 0),
-      totalUtilidad: mapped.reduce((sum, s) => sum + s.utilidad, 0),
-      totalComisionAsesor: mapped.reduce((sum, s) => sum + s.comision_asesor, 0),
-      totalComisionLocal: mapped.reduce((sum, s) => sum + s.comision_local, 0),
+      totalVentas: Number(mapped.reduce((sum, s) => sum + s.total, 0).toFixed(2)),
+      totalUtilidad: Number(mapped.reduce((sum, s) => sum + s.utilidad, 0).toFixed(2)),
+      totalComisionAsesor: Number(mapped.reduce((sum, s) => sum + s.comision_asesor, 0).toFixed(2)),
+      totalComisionLocal,
+      totalGastos,
+      saldoComisionLocal,
       totalUnidades: mapped.reduce((sum, s) => sum + s.unidades, 0),
     };
 
@@ -535,7 +556,7 @@ export async function getSaleHistory(searchParams: {
     const [salesRows, sellerOptions, channelOptions, paymentOptions] = await Promise.all([
       query<SaleHistoryRowRaw>(sql, params),
       query<{ id_usuario: number; nombres: string; apellidos: string; id_local: number | null }>(
-        `SELECT id_usuario, nombres, apellidos, id_local FROM usuarios WHERE activo = 1 ORDER BY nombres ASC`
+        `SELECT id_usuario, nombres, apellidos, id_local FROM usuarios WHERE activo = 1 AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
       ),
       query<{ id_canal: number; nombre: string }>(
         `SELECT id_canal, nombre FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
@@ -764,7 +785,7 @@ export async function getSaleWorkspaceContext() {
     const safePaymentMethods = paymentMethods && paymentMethods.length ? paymentMethods : [
       { id_forma_pago: 1, nombre: "Efectivo", codigo: "EFECTIVO", requiere_referencia: 0 },
       { id_forma_pago: 2, nombre: "Transferencia", codigo: "TRANSFERENCIA", requiere_referencia: 1 },
-      { id_forma_pago: 3, nombre: "Tarjeta", codigo: "TARJETA", requiere_referencia: 1 },
+      { id_forma_pago: 3, nombre: "De Una", codigo: "DE_UNA", requiere_referencia: 1 },
       { id_forma_pago: 4, nombre: "Mixto", codigo: "MIXTO", requiere_referencia: 0 },
     ];
     const safeCustomers = customers && customers.length ? customers : [

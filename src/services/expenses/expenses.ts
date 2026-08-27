@@ -56,6 +56,7 @@ type ExpenseRowRaw = {
 };
 
 export async function listExpenses(filters?: {
+  year?: string;
   month?: string; // YYYY-MM
   category?: string;
 }): Promise<{ expenses: ExpenseItem[]; summary: ExpenseSummary }> {
@@ -82,6 +83,11 @@ export async function listExpenses(filters?: {
   `;
 
   const params: unknown[] = [];
+
+  if (filters?.year && /^\d{4}$/.test(filters.year)) {
+    sql += ` AND DATE_FORMAT(g.fecha, '%Y') = ?`;
+    params.push(filters.year);
+  }
 
   if (filters?.month && /^\d{4}-\d{2}$/.test(filters.month)) {
     sql += ` AND DATE_FORMAT(g.fecha, '%Y-%m') = ?`;
@@ -116,6 +122,10 @@ export async function listExpenses(filters?: {
     // Calcular ventas y comisión del 40% del local para el período
     let salesSql = `SELECT COALESCE(SUM(total), 0) AS total_ventas FROM ventas WHERE UPPER(COALESCE(estado, '')) NOT IN ('ANULADA', 'ANULADO')`;
     const salesParams: unknown[] = [];
+    if (filters?.year && /^\d{4}$/.test(filters.year)) {
+      salesSql += ` AND DATE_FORMAT(fecha, '%Y') = ?`;
+      salesParams.push(filters.year);
+    }
     if (filters?.month && /^\d{4}-\d{2}$/.test(filters.month)) {
       salesSql += ` AND DATE_FORMAT(fecha, '%Y-%m') = ?`;
       salesParams.push(filters.month);
@@ -124,7 +134,7 @@ export async function listExpenses(filters?: {
     const totalVentas = Number(salesRows?.[0]?.total_ventas) || 0;
     const utilidadBruta = Number((totalVentas * 0.327).toFixed(2));
     const comisionLocal40 = Number((utilidadBruta * 0.40).toFixed(2));
-    const totalGastos = expenses.reduce((sum, e) => sum + e.monto, 0);
+    const totalGastos = Number(expenses.reduce((sum, e) => sum + e.monto, 0).toFixed(2));
     const saldoComisionLocal = Number((comisionLocal40 - totalGastos).toFixed(2));
 
     const summary: ExpenseSummary = {

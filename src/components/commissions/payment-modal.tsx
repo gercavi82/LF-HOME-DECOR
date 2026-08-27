@@ -167,6 +167,7 @@ export function CommissionPaymentModal({
                     className="h-11 w-full rounded-xl border bg-white px-3 outline-none focus:border-lf-terracotta"
                   >
                     <option value="Transferencia">Transferencia bancaria</option>
+                    <option value="De Una">De Una</option>
                     <option value="Efectivo">Efectivo</option>
                     <option value="Depósito">Depósito</option>
                     <option value="Cheque">Cheque</option>

@@ -67,8 +67,8 @@ export async function ensureCustomTables() {
         \`activo\` TINYINT(1) NOT NULL DEFAULT 1
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-    // Desactivar Tarjetas de crédito/débito
-    await execute(`UPDATE \`formas_pago\` SET \`activo\` = 0 WHERE \`codigo\` = 'TARJETA'`).catch(() => null);
+    // Desactivar Tarjetas de crédito/débito y asegurar formas de pago válidas
+    await execute(`UPDATE \`formas_pago\` SET \`activo\` = 0 WHERE \`codigo\` LIKE '%TARJETA%' OR \`nombre\` LIKE '%Tarjeta%'`).catch(() => null);
     await execute(`
       INSERT INTO \`formas_pago\` (\`id_forma_pago\`, \`nombre\`, \`codigo\`, \`requiere_referencia\`, \`activo\`) VALUES
       (1, 'Efectivo', 'EFECTIVO', 0, 1),
@@ -78,8 +78,10 @@ export async function ensureCustomTables() {
       ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`codigo\` = VALUES(\`codigo\`), \`requiere_referencia\` = VALUES(\`requiere_referencia\`), \`activo\` = 1;
     `).catch(() => null);
 
-    // Desactivar usuario Iralda Manosalvas si existe
-    await execute(`UPDATE \`usuarios\` SET \`activo\` = 0 WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%'`).catch(() => null);
+    // Eliminar / desactivar usuario Iralda Manoslavas / Manosalvas si existe
+    await execute(`DELETE FROM \`sesiones_usuario\` WHERE \`id_usuario\` IN (SELECT \`id_usuario\` FROM \`usuarios\` WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%')`).catch(() => null);
+    await execute(`DELETE FROM \`usuarios\` WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%'`).catch(() => null);
+    await execute(`UPDATE \`usuarios\` SET \`activo\` = 0 WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%'`).catch(() => null);
 
     // Asegurar Cliente Consumidor Final
     await execute(`

@@ -78,11 +78,18 @@ export default async function SalesPage({
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500 bg-amber-50/20">
+        <Card className={`border-l-4 ${summary.saldoComisionLocal >= 0 ? "border-l-amber-500 bg-amber-50/20" : "border-l-red-500 bg-red-50/20"}`}>
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Comisión Local (40%)</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Comisión Local (40%)</p>
+              <Badge variant={summary.saldoComisionLocal >= 0 ? "success" : "danger"}>
+                Saldo: {currency.format(summary.saldoComisionLocal)}
+              </Badge>
+            </div>
             <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(summary.totalComisionLocal)}</p>
-            <p className="mt-1 text-xs text-amber-600">40% de la utilidad neta</p>
+            <p className="mt-1 text-xs text-amber-800">
+              40% ({currency.format(summary.totalComisionLocal)}) − Gastos ({currency.format(summary.totalGastos)}) = Saldo para cuadrar: <span className="font-bold">{currency.format(summary.saldoComisionLocal)}</span>
+            </p>
           </CardContent>
         </Card>
 

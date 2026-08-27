@@ -58,6 +58,8 @@ export default async function ReportsPage({
   const sumMonthlyUtilidad = data.monthlyBreakdown.reduce((sum, m) => sum + m.utilidad, 0);
   const sumMonthlyComisionAsesores = data.monthlyBreakdown.reduce((sum, m) => sum + m.comision_asesores, 0);
   const sumMonthlyComisionLocal = data.monthlyBreakdown.reduce((sum, m) => sum + m.comision_local, 0);
+  const sumMonthlyGastos = data.monthlyBreakdown.reduce((sum, m) => sum + (m.gastos || 0), 0);
+  const sumMonthlySaldoLocal = data.monthlyBreakdown.reduce((sum, m) => sum + (m.saldo_comision_local ?? (m.comision_local - (m.gastos || 0))), 0);
 
   const sumTypeUnidades = data.typeBreakdown.reduce((sum, t) => sum + t.unidades, 0);
   const sumTypeVentas = data.typeBreakdown.reduce((sum, t) => sum + t.total_ventas, 0);
@@ -257,7 +259,9 @@ export default async function ReportsPage({
                 <TableHead className="text-right">Costo Mercadería</TableHead>
                 <TableHead className="text-right">Utilidad Bruta</TableHead>
                 <TableHead className="text-right">Comisión Asesores (60%)</TableHead>
-                <TableHead className="text-right">Participación Local (40%)</TableHead>
+                <TableHead className="text-right">Comisión Local (40%)</TableHead>
+                <TableHead className="text-right">Gastos Deducidos (−)</TableHead>
+                <TableHead className="text-right">Saldo Local (Para Cuadrar)</TableHead>
               </tr>
             </thead>
             <tbody>
@@ -270,12 +274,16 @@ export default async function ReportsPage({
                     <TableCell className="text-right text-lf-muted">{currency.format(m.total_costo)}</TableCell>
                     <TableCell className="text-right font-semibold text-amber-700">{currency.format(m.utilidad)}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-700">{currency.format(m.comision_asesores)}</TableCell>
-                    <TableCell className="text-right font-medium text-lf-navy">{currency.format(m.comision_local)}</TableCell>
+                    <TableCell className="text-right font-medium text-amber-800">{currency.format(m.comision_local)}</TableCell>
+                    <TableCell className="text-right text-rose-700">−{currency.format(m.gastos || 0)}</TableCell>
+                    <TableCell className={`text-right font-bold ${(m.saldo_comision_local ?? (m.comision_local - (m.gastos || 0))) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                      {currency.format(m.saldo_comision_local ?? (m.comision_local - (m.gastos || 0)))}
+                    </TableCell>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <TableCell colSpan={7} className="py-6 text-center text-sm text-lf-muted">
+                  <TableCell colSpan={9} className="py-6 text-center text-sm text-lf-muted">
                     No se registran ventas para los filtros seleccionados.
                   </TableCell>
                 </tr>
@@ -289,7 +297,11 @@ export default async function ReportsPage({
                 <TableCell className="text-right text-lf-muted">{currency.format(sumMonthlyCostos)}</TableCell>
                 <TableCell className="text-right text-amber-700">{currency.format(sumMonthlyUtilidad)}</TableCell>
                 <TableCell className="text-right text-emerald-700">{currency.format(sumMonthlyComisionAsesores)}</TableCell>
-                <TableCell className="text-right text-lf-navy">{currency.format(sumMonthlyComisionLocal)}</TableCell>
+                <TableCell className="text-right text-amber-800">{currency.format(sumMonthlyComisionLocal)}</TableCell>
+                <TableCell className="text-right text-rose-700">−{currency.format(sumMonthlyGastos)}</TableCell>
+                <TableCell className={`text-right ${sumMonthlySaldoLocal >= 0 ? "text-emerald-800 font-extrabold" : "text-red-800 font-extrabold"}`}>
+                  {currency.format(sumMonthlySaldoLocal)}
+                </TableCell>
               </tr>
             </tfoot>
           </Table>

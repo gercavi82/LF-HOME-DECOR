@@ -15,6 +15,8 @@ export type MonthlySalesBreakdown = {
   utilidad: number;
   comision_asesores: number;
   comision_local: number;
+  gastos: number;
+  saldo_comision_local: number;
 };
 
 export type ProductTypeSalesBreakdown = {
@@ -133,8 +135,8 @@ export async function getFinancialReport(filters?: {
 
     const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-    // 4. Desglose Mensual de Ventas y Compras
-    const [monthlyRows, monthlyPurchaseRows] = await Promise.all([
+    // 4. Desglose Mensual de Ventas, Compras y Gastos
+    const [monthlyRows, monthlyPurchaseRows, monthlyExpenseRows] = await Promise.all([
       query<{
         year_month: string;
         unidades: number;
@@ -165,11 +167,28 @@ export async function getFinancialReport(filters?: {
          GROUP BY DATE_FORMAT(c.fecha, '%Y-%m')
          ORDER BY DATE_FORMAT(c.fecha, '%Y-%m') ASC`
       ).catch(() => []),
+      query<{
+        year_month: string;
+        total_gastos: number;
+      }>(
+        `SELECT 
+           DATE_FORMAT(g.fecha, '%Y-%m') AS year_month,
+           COALESCE(SUM(g.monto), 0) AS total_gastos
+         FROM gastos g
+         WHERE g.activo = 1
+         GROUP BY DATE_FORMAT(g.fecha, '%Y-%m')
+         ORDER BY DATE_FORMAT(g.fecha, '%Y-%m') ASC`
+      ).catch(() => []),
     ]);
 
     const purchaseMap = new Map<string, number>();
     (monthlyPurchaseRows ?? []).forEach((r) => {
       purchaseMap.set(String(r.year_month), Number(r.total_compras) || 0);
+    });
+
+    const expenseMap = new Map<string, number>();
+    (monthlyExpenseRows ?? []).forEach((r) => {
+      expenseMap.set(String(r.year_month), Number(r.total_gastos) || 0);
     });
 
     const monthlyBreakdown: MonthlySalesBreakdown[] = (monthlyRows ?? []).map((r) => {
@@ -180,6 +199,9 @@ export async function getFinancialReport(filters?: {
       const [y, m] = ym.split("-");
       const label = `${MONTH_NAMES[m] || m} ${y || "2026"}`;
       const totalCompras = purchaseMap.get(ym) || 0;
+      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
+      const gastosMes = Number(expenseMap.get(ym) || 0);
+      const saldoComisionLocal = Number((comisionLocal - gastosMes).toFixed(2));
 
       return {
         year_month: ym,
@@ -190,7 +212,9 @@ export async function getFinancialReport(filters?: {
         total_compras: totalCompras,
         utilidad,
         comision_asesores: Number((utilidad * 0.60).toFixed(2)),
-        comision_local: Number((utilidad * 0.40).toFixed(2)),
+        comision_local: comisionLocal,
+        gastos: gastosMes,
+        saldo_comision_local: saldoComisionLocal,
       };
     });
 
@@ -276,7 +300,7 @@ export async function getFinancialReport(filters?: {
     }
 
     advisorSql += `
-      WHERE u.activo = 1 AND (u.id_perfil IN (2, 3, 4) OR u.id_usuario IN (SELECT DISTINCT id_usuario FROM ventas))
+      WHERE u.activo = 1 AND (u.id_perfil IN (2, 3, 4) OR u.id_usuario IN (SELECT DISTINCT id_usuario FROM ventas)) AND u.nombres NOT LIKE '%Iralda%' AND u.apellidos NOT LIKE '%Manos%'
       GROUP BY u.id_usuario
       ORDER BY total_ventas DESC, u.nombres ASC
     `;
@@ -337,8 +361,23 @@ export async function getFinancialReport(filters?: {
 
     // 7. Gastos con filtro de fecha
     const filterMonthParam = selectedYear && selectedMonth ? `${selectedYear}-${selectedMonth.padStart(2, "0")}` : undefined;
-    const { summary: expSummary } = await listExpenses({ month: filterMonthParam }).catch(() => ({
-      summary: { total: 0, fijo: 0, variable: 0, marketing: 0, operativo: 0, mejoras: 0, count: 0 },
+    const { summary: expSummary } = await listExpenses({
+      year: selectedYear || undefined,
+      month: filterMonthParam,
+    }).catch(() => ({
+      summary: {
+        total: 0,
+        fijo: 0,
+        variable: 0,
+        marketing: 0,
+        operativo: 0,
+        mejoras: 0,
+        count: 0,
+        totalVentas: 0,
+        utilidadBruta: 0,
+        comisionLocal40: 0,
+        saldoComisionLocal: 0,
+      },
       expenses: [],
     }));
 

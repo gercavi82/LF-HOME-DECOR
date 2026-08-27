@@ -89,7 +89,7 @@ export async function getCommissionsSummary(month?: string): Promise<{
 
   sql += `
     LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
-    WHERE u.activo = 1 AND u.id_perfil IN (2, 3)
+    WHERE u.activo = 1 AND u.id_perfil IN (2, 3) AND u.nombres NOT LIKE '%Iralda%' AND u.apellidos NOT LIKE '%Manos%'
     GROUP BY u.id_usuario
     ORDER BY total_ventas DESC, u.nombres ASC
   `;

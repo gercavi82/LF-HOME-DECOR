@@ -21,6 +21,7 @@ export default async function NewSalePage() {
     : [
         { id_forma_pago: 1, nombre: "Efectivo", codigo: "EFECTIVO", requiere_referencia: false },
         { id_forma_pago: 2, nombre: "Transferencia", codigo: "TRANSFERENCIA", requiere_referencia: true },
+        { id_forma_pago: 3, nombre: "De Una", codigo: "DE_UNA", requiere_referencia: true },
       ];
   const safeCustomers = customers?.length
     ? customers

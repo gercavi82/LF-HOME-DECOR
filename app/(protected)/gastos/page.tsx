@@ -44,39 +44,52 @@ export default async function ExpensesPage({
 
       {/* Tarjetas de Resumen Financiero: Comisión del 40% vs Gastos Deducidos */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-lf-navy">
+        <Card className="border-l-4 border-l-amber-500 bg-amber-50/20">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Comisión Local (40%)</p>
-            <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(summary.comisionLocal40)}</p>
-            <p className="mt-1 text-xs text-lf-muted">40% de utilidad de ventas</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Comisión Local (40%)</p>
+            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(summary.comisionLocal40)}</p>
+            <p className="mt-1 text-xs text-amber-700">40% de utilidad de ventas</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-rose-500">
+        <Card className="border-l-4 border-l-rose-500 bg-rose-50/20">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Deducidos (−)</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-rose-800">Gastos Deducidos (−)</p>
             <p className="mt-1 text-2xl font-bold text-rose-700">{currency.format(summary.total)}</p>
-            <p className="mt-1 text-xs text-lf-muted">{summary.count} gasto(s) registrados</p>
+            <p className="mt-1 text-xs text-rose-700">{summary.count} gasto(s) registrados</p>
           </CardContent>
         </Card>
 
         <Card className={`border-l-4 ${summary.saldoComisionLocal >= 0 ? "border-l-emerald-600 bg-emerald-50/40" : "border-l-red-600 bg-red-50/40"}`}>
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-900">Saldo Neto Comisión 40%</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-900">Saldo Comisión Local (40%)</p>
+              <Badge variant={summary.saldoComisionLocal >= 0 ? "success" : "danger"}>Para cuadrar</Badge>
+            </div>
             <p className={`mt-1 text-2xl font-bold ${summary.saldoComisionLocal >= 0 ? "text-emerald-800" : "text-red-700"}`}>
               {currency.format(summary.saldoComisionLocal)}
             </p>
-            <p className="mt-1 text-xs text-emerald-700 font-medium">Comisión 40% − Gastos</p>
+            <p className="mt-1 text-xs text-emerald-700 font-medium">40% ({currency.format(summary.comisionLocal40)}) − Gastos ({currency.format(summary.total)})</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500">
+        <Card className="border-l-4 border-l-blue-500 bg-blue-50/20">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Fijos & Mejoras</p>
-            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(summary.fijo + summary.mejoras)}</p>
-            <p className="mt-1 text-xs text-lf-muted">Operativo & Mktg: {currency.format(summary.operativo + summary.marketing)}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-900">Gastos Fijos & Mejoras</p>
+            <p className="mt-1 text-2xl font-bold text-blue-900">{currency.format(summary.fijo + summary.mejoras)}</p>
+            <p className="mt-1 text-xs text-blue-700">Operativo & Mktg: {currency.format(summary.operativo + summary.marketing)}</p>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900 flex items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <span className="text-base">💡</span>
+          <span><strong>Regla de Pago & Liquidación:</strong> Cada gasto registrado se paga y resta directamente de la <strong>comisión del 40% del local</strong>. El saldo resultante refleja el valor neto disponible para cuadrar.</span>
+        </div>
+        <Link href="/reportes" className="whitespace-nowrap font-semibold text-amber-900 hover:underline">
+          Ver reporte consolidado →
+        </Link>
       </div>
 
       {/* Filtros */}
