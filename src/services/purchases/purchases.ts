@@ -118,7 +118,6 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
         COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor_nombre,
         CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
         COALESCE(SUM(dc.cantidad), 1) AS unidades,
-        GROUP_CONCAT(DISTINCT CONCAT(prod.descripcion, ' (', dc.cantidad, 'u)') SEPARATOR ', ') AS producto_desc,
         COALESCE(SUM((
           SELECT COALESCE(SUM(pc.monto), 0)
           FROM pagos_compras pc
@@ -183,7 +182,6 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
           COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor_nombre,
           CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
           COALESCE(SUM(dc.cantidad), 1) AS unidades,
-          GROUP_CONCAT(DISTINCT CONCAT(prod.descripcion, ' (', dc.cantidad, 'u)') SEPARATOR ', ') AS producto_desc,
           0 AS total_abonos
         FROM compras c
         LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
@@ -200,10 +198,47 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       rows = await query<PurchaseRowRaw>(fallbackSql, params).catch(() => []);
     }
 
+    // 4. Query consolidada de productos por fecha con unidades sumadas y costo unitario
+    const itemRows = await query<{
+      fecha: Date | string;
+      descripcion: string;
+      cantidad_total: number;
+      precio_unitario: number;
+    }>(`
+      SELECT 
+        DATE(c.fecha) AS fecha,
+        prod.descripcion,
+        SUM(dc.cantidad) AS cantidad_total,
+        dc.precio_unitario
+      FROM detalle_compras dc
+      JOIN compras c ON c.id_compra = dc.id_compra
+      JOIN variantes_producto vp ON vp.id_variante = dc.id_variante
+      JOIN productos prod ON prod.id_producto = vp.id_producto
+      WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+      GROUP BY DATE(c.fecha), prod.descripcion, dc.precio_unitario
+      ORDER BY prod.descripcion ASC
+    `).catch(() => []);
+
+    const itemsByDateMap = new Map<string, string[]>();
+    for (const it of itemRows ?? []) {
+      const dateKey = typeof it.fecha === "string" ? it.fecha.slice(0, 10) : new Date(it.fecha).toISOString().slice(0, 10);
+      if (!itemsByDateMap.has(dateKey)) {
+        itemsByDateMap.set(dateKey, []);
+      }
+      const unitPriceStr = Number(it.precio_unitario || 0).toFixed(2);
+      itemsByDateMap.get(dateKey)!.push(
+        `${it.descripcion} (${it.cantidad_total}u a $${unitPriceStr} c/u)`
+      );
+    }
+
     const purchases: PurchaseItem[] = (rows ?? []).map((r) => {
       const total = Number(r.total) || 0;
       const abonos = Number(r.total_abonos) || 0;
       const saldo = Math.max(0, Number((total - abonos).toFixed(2)));
+      const dateStr = typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10);
+
+      const itemsList = itemsByDateMap.get(dateStr) || [];
+      const consolidatedDesc = itemsList.length > 0 ? itemsList.join(" | ") : (r.producto_desc || "Prendas textiles");
 
       let estadoPago: "PAGADO" | "ABONO_PARCIAL" | "PENDIENTE" = "PENDIENTE";
       if (saldo <= 0 && total > 0) {
@@ -215,13 +250,13 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       return {
         id_compra: Number(r.id_compra),
         numero_compra: r.numero_compra || `#${r.id_compra}`,
-        fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
+        fecha: dateStr,
         proveedor: r.proveedor_nombre ?? "Distribuidora Nacional",
         subtotal: Number(r.subtotal) || 0,
         iva: Number(r.iva) || 0,
         total,
         unidades: Number(r.unidades) || 0,
-        producto: r.producto_desc || "Edredones / Sábanas",
+        producto: consolidatedDesc,
         estado: r.estado,
         observaciones: r.observaciones ?? null,
         usuario: r.usuario_nombre ?? "Administrador",

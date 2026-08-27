@@ -243,13 +243,13 @@ export default async function PurchasesPage({
                     <TableCell className="text-sm">
                       <p className="font-medium text-lf-navy">{compra.proveedor}</p>
                     </TableCell>
-                    <TableCell className="min-w-[260px] max-w-sm text-xs">
-                      <div className="flex flex-wrap gap-1">
+                    <TableCell className="min-w-[280px] max-w-md text-xs">
+                      <div className="flex flex-col gap-1.5 py-1">
                         {compra.producto ? (
-                          compra.producto.split(", ").map((item, i) => (
+                          compra.producto.split(/\s*\|\s*/).map((item, i) => (
                             <span
                               key={i}
-                              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 shadow-2xs"
+                              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-xs font-medium text-slate-900 shadow-2xs"
                             >
                               {item}
                             </span>

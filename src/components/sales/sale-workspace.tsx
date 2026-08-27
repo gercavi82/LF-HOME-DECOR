@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Clock3, CreditCard, Minus, Plus, Search, ShoppingCart, Trash2, X } from "lucide-react";
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,32 +31,70 @@ function calculateCart(items: CartItem[], discountValue: number) {
   return { gross: grossCents / 100, discount: discountCents / 100, subtotal: subtotalCents / 100, tax: taxCents / 100, total: (grossCents - discountCents) / 100 };
 }
 
-export function SaleWorkspace({ locations, products, channels, paymentMethods, customers, defaultLocation, defaultChannelCode }: { locations: Array<{ id_local: number; nombre: string }>; products: SaleProduct[]; channels: SaleChannel[]; paymentMethods: SalePaymentMethod[]; customers: SaleCustomer[]; defaultLocation: number | null; defaultChannelCode: string }) {
+export function SaleWorkspace({
+  locations = [],
+  products = [],
+  channels = [],
+  paymentMethods = [],
+  customers = [],
+  defaultLocation,
+  defaultChannelCode,
+}: {
+  locations: Array<{ id_local: number; nombre: string }>;
+  products: SaleProduct[];
+  channels: SaleChannel[];
+  paymentMethods: SalePaymentMethod[];
+  customers: SaleCustomer[];
+  defaultLocation: number | null;
+  defaultChannelCode: string;
+}) {
   const [actionState, formAction, pending] = useActionState(createSaleAction, initialActionState);
   const [elapsed, setElapsed] = useState(0);
-  const [locationId, setLocationId] = useState(defaultLocation ?? 0);
+  const [locationId, setLocationId] = useState(defaultLocation || locations[0]?.id_local || 1);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
-  const [channelId, setChannelId] = useState(channels.find((channel) => channel.codigo === defaultChannelCode)?.id_canal ?? channels[0]?.id_canal ?? 0);
-  const [paymentMethodId, setPaymentMethodId] = useState(paymentMethods.find((method) => method.codigo === "EFECTIVO")?.id_forma_pago ?? paymentMethods[0]?.id_forma_pago ?? 0);
+  const [channelId, setChannelId] = useState(
+    channels.find((channel) => channel.codigo === defaultChannelCode)?.id_canal ?? channels[0]?.id_canal ?? 1
+  );
+  const [paymentMethodId, setPaymentMethodId] = useState(
+    paymentMethods.find((method) => method.codigo === "EFECTIVO")?.id_forma_pago ?? paymentMethods[0]?.id_forma_pago ?? 1
+  );
   const [paymentReference, setPaymentReference] = useState("");
   const [customerId, setCustomerId] = useState(0);
   const [observations, setObservations] = useState("");
   const simplePaymentMethods = paymentMethods.filter((method) => method.codigo !== "MIXTO");
   const [paymentParts, setPaymentParts] = useState<PaymentPart[]>(() => [
-    { key: 1, methodId: simplePaymentMethods[0]?.id_forma_pago ?? 0, value: 0, reference: "" },
-    { key: 2, methodId: simplePaymentMethods[1]?.id_forma_pago ?? simplePaymentMethods[0]?.id_forma_pago ?? 0, value: 0, reference: "" },
+    { key: 1, methodId: simplePaymentMethods[0]?.id_forma_pago ?? 1, value: 0, reference: "" },
+    { key: 2, methodId: simplePaymentMethods[1]?.id_forma_pago ?? simplePaymentMethods[0]?.id_forma_pago ?? 1, value: 0, reference: "" },
   ]);
   const [message, setMessage] = useState<string>();
   const searchRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { searchRef.current?.focus(); const started = Date.now(); const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    searchRef.current?.focus();
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const availableProducts = useMemo(() => products.filter((product) => (product.stockPorLocal[locationId] ?? 0) > 0), [products, locationId]);
+  const availableProducts = useMemo(() => {
+    return products.filter((product) => {
+      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 10;
+      return stock > 0;
+    });
+  }, [products, locationId]);
+
   const matches = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("es");
     if (!term) return [];
-    return availableProducts.filter((product) => product.producto.toLocaleLowerCase("es").includes(term) || product.codigo_interno.toLocaleLowerCase("es").includes(term) || product.codigo_gs1?.includes(term.replace(/[\s-]/g, ""))).slice(0, 8);
+    return availableProducts
+      .filter(
+        (product) =>
+          product.producto.toLocaleLowerCase("es").includes(term) ||
+          product.codigo_interno.toLocaleLowerCase("es").includes(term) ||
+          product.codigo_gs1?.includes(term.replace(/[\s-]/g, ""))
+      )
+      .slice(0, 8);
   }, [availableProducts, search]);
   const totals = useMemo(() => calculateCart(cart, discount), [cart, discount]);
   const selectedPaymentMethod = paymentMethods.find((method) => method.id_forma_pago === paymentMethodId);
