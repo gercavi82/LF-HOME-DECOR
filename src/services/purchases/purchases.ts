@@ -98,26 +98,26 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     ).catch(() => []);
     const availableTypes = (typeRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) }));
 
-    // 3. Query base de compras con filtros
+    // 3. Query base de compras agrupadas por fecha
     let sql = `
       SELECT 
-        c.id_compra,
-        c.numero_compra,
-        c.fecha,
-        c.subtotal,
-        c.iva,
-        c.total,
-        c.estado,
-        c.observaciones,
-        COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
+        MIN(c.id_compra) AS id_compra,
+        CONCAT('COM-', DATE_FORMAT(c.fecha, '%Y%m%d')) AS numero_compra,
+        DATE(c.fecha) AS fecha,
+        SUM(c.subtotal) AS subtotal,
+        SUM(c.iva) AS iva,
+        SUM(c.total) AS total,
+        COALESCE(c.estado, 'REGISTRADA') AS estado,
+        GROUP_CONCAT(DISTINCT c.observaciones SEPARATOR '; ') AS observaciones,
+        COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor_nombre,
         CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
         COALESCE(SUM(dc.cantidad), 1) AS unidades,
-        GROUP_CONCAT(DISTINCT prod.descripcion SEPARATOR ', ') AS producto_desc,
-        COALESCE((
-          SELECT SUM(pc.monto)
+        GROUP_CONCAT(DISTINCT CONCAT(prod.descripcion, ' (', dc.cantidad, 'u)') SEPARATOR ', ') AS producto_desc,
+        COALESCE(SUM((
+          SELECT COALESCE(SUM(pc.monto), 0)
           FROM pagos_compras pc
           WHERE pc.id_compra = c.id_compra AND pc.activo = 1
-        ), 0) AS total_abonos
+        )), 0) AS total_abonos
       FROM compras c
       LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
       LEFT JOIN usuarios u ON u.id_usuario = c.id_usuario
@@ -155,8 +155,8 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     }
 
     sql += `
-      GROUP BY c.id_compra
-      ORDER BY c.fecha DESC, c.id_compra DESC
+      GROUP BY DATE(c.fecha), COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones')
+      ORDER BY fecha DESC
       LIMIT 200
     `;
 
@@ -166,18 +166,18 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     if (!rows || rows.length === 0) {
       const fallbackSql = `
         SELECT 
-          c.id_compra,
-          c.numero_compra,
-          c.fecha,
-          c.subtotal,
-          c.iva,
-          c.total,
-          c.estado,
-          c.observaciones,
-          COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
+          MIN(c.id_compra) AS id_compra,
+          CONCAT('COM-', DATE_FORMAT(c.fecha, '%Y%m%d')) AS numero_compra,
+          DATE(c.fecha) AS fecha,
+          SUM(c.subtotal) AS subtotal,
+          SUM(c.iva) AS iva,
+          SUM(c.total) AS total,
+          COALESCE(c.estado, 'REGISTRADA') AS estado,
+          GROUP_CONCAT(DISTINCT c.observaciones SEPARATOR '; ') AS observaciones,
+          COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor_nombre,
           CONCAT(u.nombres, ' ', u.apellidos) AS usuario_nombre,
           COALESCE(SUM(dc.cantidad), 1) AS unidades,
-          GROUP_CONCAT(DISTINCT prod.descripcion SEPARATOR ', ') AS producto_desc,
+          GROUP_CONCAT(DISTINCT CONCAT(prod.descripcion, ' (', dc.cantidad, 'u)') SEPARATOR ', ') AS producto_desc,
           0 AS total_abonos
         FROM compras c
         LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
@@ -187,8 +187,8 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
         LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
         WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
         ${whereClauses.length ? `AND ${whereClauses.join(" AND ")}` : ""}
-        GROUP BY c.id_compra
-        ORDER BY c.fecha DESC, c.id_compra DESC
+        GROUP BY DATE(c.fecha), COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones')
+        ORDER BY fecha DESC
         LIMIT 200
       `;
       rows = await query<PurchaseRowRaw>(fallbackSql, params).catch(() => []);

@@ -322,24 +322,39 @@ sql += `INSERT INTO \`proveedores\` (\`id_proveedor\`, \`ruc_cedula\`, \`nombre\
 (1, '1790012345001', 'Distribuidora Nacional de Blancos & Edredones', '0998877665', 'contacto@distribuidorablancos.ec', 'Quito, Ecuador', 1)
 ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`activo\` = 1;\n`;
 
-// 9. Insertar Compras Históricas Reales (39 Registros)
-sql += `\n-- 9. INSERTAR COMPRAS REALES DESDE EXCEL (39 REGISTROS)\n`;
+// 9. Insertar Compras Reales Agrupadas por Fecha (con múltiples detalles por compra)
+sql += `\n-- 9. INSERTAR COMPRAS REALES AGRUPADAS POR FECHA (CON MÚLTIPLES DETALLES)\n`;
 sql += `DELETE FROM \`detalle_compras\`;\n`;
 sql += `DELETE FROM \`compras\`;\n`;
 
-purchasesList.forEach((pur, idx) => {
-  const compraId = idx + 1;
-  const numCompra = `COM-2026-${compraId.toString().padStart(4, "0")}`;
-  const varId = variantCodeToId.get(pur.idProd) || 1;
-  const subtotal = Number((pur.totalCompra / 1.15).toFixed(2));
-  const iva = Number((pur.totalCompra - subtotal).toFixed(2));
+const purchasesByDate = new Map();
+purchasesList.forEach((pur) => {
+  if (!purchasesByDate.has(pur.fecha)) {
+    purchasesByDate.set(pur.fecha, []);
+  }
+  purchasesByDate.get(pur.fecha).push(pur);
+});
+
+let compraOrderIdx = 1;
+for (const [dateStr, items] of purchasesByDate.entries()) {
+  const numCompra = `COM-2026-${compraOrderIdx.toString().padStart(4, "0")}`;
+  const totalCompra = Number(items.reduce((s, it) => s + it.totalCompra, 0).toFixed(2));
+  const subtotal = Number((totalCompra / 1.15).toFixed(2));
+  const iva = Number((totalCompra - subtotal).toFixed(2));
 
   sql += `INSERT INTO \`compras\` (\`id_compra\`, \`id_proveedor\`, \`id_local\`, \`id_usuario\`, \`numero_compra\`, \`fecha\`, \`subtotal\`, \`iva\`, \`total\`, \`observaciones\`, \`estado\`) VALUES
-(${compraId}, 1, 1, 1, '${numCompra}', '${pur.fecha} 10:00:00', ${subtotal}, ${iva}, ${pur.totalCompra.toFixed(2)}, 'Compra registrada desde consolidado Excel', 'REGISTRADA');\n`;
+(${compraOrderIdx}, 1, 1, 1, '${numCompra}', '${dateStr} 10:00:00', ${subtotal}, ${iva}, ${totalCompra.toFixed(2)}, 'Compra agrupada por fecha desde consolidado Excel', 'REGISTRADA');\n`;
 
-  sql += `INSERT INTO \`detalle_compras\` (\`id_compra\`, \`id_variante\`, \`cantidad\`, \`precio_unitario\`, \`subtotal\`, \`iva\`, \`total\`) VALUES
-(${compraId}, ${varId}, ${pur.cant}, ${pur.precioUnit.toFixed(2)}, ${subtotal}, ${iva}, ${pur.totalCompra.toFixed(2)});\n`;
-});
+  items.forEach((it) => {
+    const varId = variantCodeToId.get(it.idProd) || 1;
+    const itSubtotal = Number((it.totalCompra / 1.15).toFixed(2));
+    const itIva = Number((it.totalCompra - itSubtotal).toFixed(2));
+    sql += `INSERT INTO \`detalle_compras\` (\`id_compra\`, \`id_variante\`, \`cantidad\`, \`precio_unitario\`, \`subtotal\`, \`iva\`, \`total\`) VALUES
+(${compraOrderIdx}, ${varId}, ${it.cant}, ${it.precioUnit.toFixed(2)}, ${itSubtotal}, ${itIva}, ${it.totalCompra.toFixed(2)});\n`;
+  });
+
+  compraOrderIdx++;
+}
 
 // 10. Insertar Gastos
 sql += `\n-- 10. INSERTAR GASTOS HISTÓRICOS DEL LOCAL\n`;
