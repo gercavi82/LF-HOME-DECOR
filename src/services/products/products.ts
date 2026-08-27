@@ -63,24 +63,16 @@ function cleanSearch(value: string) {
 
 async function readOptions(table: string, idColumn: string): Promise<CatalogOption[]> {
   const rows = await query<{ id: number; nombre: string }>(
-    `SELECT MIN(\`${idColumn}\`) AS id, \`nombre\` 
+    `SELECT \`${idColumn}\` AS id, \`nombre\` 
      FROM \`${table}\` 
      WHERE \`activo\` = 1 
-     GROUP BY \`nombre\` 
      ORDER BY \`nombre\` ASC`
-  );
+  ).catch(() => []);
 
-  const seen = new Set<string>();
-  const options: CatalogOption[] = [];
-  for (const row of rows ?? []) {
-    const cleanName = String(row.nombre).trim();
-    const key = cleanName.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      options.push({ id: Number(row.id), nombre: cleanName });
-    }
-  }
-  return options;
+  return (rows ?? []).map((row) => ({
+    id: Number(row.id),
+    nombre: String(row.nombre).trim(),
+  }));
 }
 
 export async function getProductCatalogs(): Promise<ProductCatalogs> {

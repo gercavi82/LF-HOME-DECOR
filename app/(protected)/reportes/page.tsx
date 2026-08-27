@@ -409,8 +409,8 @@ export default async function ReportsPage({
                           {adv.estado_pago === "PAGADO" ? "Liquidado" : adv.comision_pagada > 0 ? "Abono Parcial" : adv.comision_asesor > 0 ? "Pendiente" : "Sin ventas"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-center">
-                        <CommissionPaymentModal advisors={advisorOptions} defaultAdvisorId={adv.id_usuario} />
+                      <TableCell className="text-center whitespace-nowrap">
+                        <CommissionPaymentModal advisors={advisorOptions} defaultAdvisorId={adv.id_usuario} compact />
                       </TableCell>
                     </tr>
                   );

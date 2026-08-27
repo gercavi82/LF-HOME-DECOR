@@ -1,4 +1,4 @@
-import { Filter, History, RotateCcw, Search, ShoppingBag } from "lucide-react";
+import { Filter, History, Plus, RotateCcw, Search, ShoppingBag, Edit2 } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
@@ -67,6 +67,12 @@ export default async function PurchasesPage({
         description="Registro histórico de compras a proveedores, abonos vinculados por fecha y saldos pendientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/compras/nueva"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-lf-navy px-3 text-xs font-semibold text-white hover:bg-lf-navy-hover transition shadow-sm"
+            >
+              <Plus size={14} /> Nueva compra
+            </Link>
             <PurchasePaymentModal purchases={purchaseOptions} />
           </div>
         }
@@ -237,34 +243,60 @@ export default async function PurchasesPage({
                     <TableCell className="text-sm">
                       <p className="font-medium text-lf-navy">{compra.proveedor}</p>
                     </TableCell>
-                    <TableCell className="text-sm text-lf-muted">
-                      {compra.producto}
+                    <TableCell className="min-w-[260px] max-w-sm text-xs">
+                      <div className="flex flex-wrap gap-1">
+                        {compra.producto ? (
+                          compra.producto.split(", ").map((item, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800 shadow-2xs"
+                            >
+                              {item}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-lf-muted">—</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-center font-bold text-lf-navy">
                       {compra.unidades}
                     </TableCell>
-                    <TableCell className="text-right text-sm text-lf-muted">
+                    <TableCell className="text-right text-sm text-lf-muted font-mono">
                       {currency.format(compra.subtotal)}
                     </TableCell>
-                    <TableCell className="text-right text-sm text-lf-muted">
+                    <TableCell className="text-right text-sm text-lf-muted font-mono">
                       {currency.format(compra.iva)}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-lf-navy">
+                    <TableCell className="text-right font-bold text-lf-navy font-mono">
                       {currency.format(compra.total)}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">
+                    <TableCell className="text-right font-bold text-emerald-700 font-mono">
                       {currency.format(compra.total_pagado)}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-amber-700">
+                    <TableCell className="text-right font-bold text-amber-700 font-mono">
                       {currency.format(compra.saldo_pendiente)}
                     </TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center whitespace-nowrap">
                       <Badge variant={compra.estado_pago === "PAGADO" ? "success" : compra.estado_pago === "ABONO_PARCIAL" ? "warning" : "neutral"}>
                         {compra.estado_pago === "PAGADO" ? "Pagado" : compra.estado_pago === "ABONO_PARCIAL" ? "Abono Parcial" : "Por Pagar"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-center">
-                      <PurchasePaymentModal purchases={purchaseOptions} defaultPurchaseId={compra.id_compra} />
+                    <TableCell className="text-center whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5">
+                        <Link
+                          href={`/compras/${compra.id_compra}/editar`}
+                          className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
+                          title="Editar compra"
+                        >
+                          <Edit2 size={12} /> Editar
+                        </Link>
+                        <PurchasePaymentModal
+                          purchases={purchaseOptions}
+                          defaultPurchaseId={compra.id_compra}
+                          compact
+                        />
+                      </div>
                     </TableCell>
                   </tr>
                 ))}

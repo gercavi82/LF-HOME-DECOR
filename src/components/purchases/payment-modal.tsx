@@ -15,9 +15,13 @@ const initialState: PurchasePaymentActionState = {};
 export function PurchasePaymentModal({
   purchases,
   defaultPurchaseId,
+  triggerLabel,
+  compact = false,
 }: {
   purchases: Array<{ id_compra: number; numero_compra: string; proveedor: string; saldo_pendiente: number }>;
   defaultPurchaseId?: number;
+  triggerLabel?: string;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -70,13 +74,20 @@ export function PurchasePaymentModal({
     });
   });
 
+  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "+ Registrar abono");
+
   return (
     <>
       <button
+        type="button"
         onClick={handleOpen}
-        className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800 transition"
+        className={`inline-flex items-center justify-center whitespace-nowrap font-semibold text-white bg-emerald-700 hover:bg-emerald-800 transition shadow-sm ${
+          compact || defaultPurchaseId
+            ? "h-8 px-2.5 rounded-xl text-xs gap-1"
+            : "h-9 px-3.5 rounded-xl text-xs gap-1.5"
+        }`}
       >
-        <Plus size={14} /> Registrar abono a proveedor
+        <Plus size={13} /> {buttonText}
       </button>
 
       {isOpen ? (

@@ -2,7 +2,13 @@ import "server-only";
 
 import { query, execute } from "@/src/lib/db/mysql";
 import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
-import { purchasePaymentSchema, type PurchasePaymentInput, type PurchasesFilterParams } from "@/src/lib/validation/purchases";
+import {
+  purchasePaymentSchema,
+  purchaseCreateSchema,
+  type PurchasePaymentInput,
+  type PurchaseCreateInput,
+  type PurchasesFilterParams,
+} from "@/src/lib/validation/purchases";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
 
 export type PurchaseItem = {
@@ -311,26 +317,314 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
   }
 }
 
+export async function getPurchaseCatalogs(): Promise<{
+  proveedores: Array<{ id: number; nombre: string; ruc_cedula: string }>;
+  variantes: Array<{ id_variante: number; descripcion: string; codigo_interno: string; precio_venta: number }>;
+}> {
+  await requireAnyPermission(["COMPRA_VER", "COMPRA_CREAR", "INVENTARIO_VER"]);
+
+  const [proveedores, variantes] = await Promise.all([
+    query<{ id_proveedor: number; nombre: string; ruc_cedula: string }>(
+      `SELECT id_proveedor, nombre, ruc_cedula FROM proveedores WHERE activo = 1 ORDER BY nombre ASC`
+    ).catch(() => []),
+    query<{ id_variante: number; descripcion: string; codigo_interno: string; precio_venta: number }>(
+      `SELECT vp.id_variante, prod.descripcion, vp.codigo_interno, vp.precio_venta
+       FROM variantes_producto vp
+       JOIN productos prod ON prod.id_producto = vp.id_producto
+       WHERE vp.activo = 1 AND prod.activo = 1
+       ORDER BY prod.descripcion ASC`
+    ).catch(() => []),
+  ]);
+
+  return {
+    proveedores: (proveedores ?? []).map((p) => ({
+      id: Number(p.id_proveedor),
+      nombre: p.nombre,
+      ruc_cedula: p.ruc_cedula,
+    })),
+    variantes: (variantes ?? []).map((v) => ({
+      id_variante: Number(v.id_variante),
+      descripcion: v.descripcion,
+      codigo_interno: v.codigo_interno,
+      precio_venta: Number(v.precio_venta) || 0,
+    })),
+  };
+}
+
+export type PurchaseDetailRecord = {
+  id_compra: number;
+  numero_compra: string;
+  id_proveedor: number;
+  proveedor: string;
+  fecha: string;
+  subtotal: number;
+  iva: number;
+  total: number;
+  observaciones: string | null;
+  items: Array<{
+    id_detalle_compra?: number;
+    id_variante: number;
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    porcentaje_iva: number;
+    subtotal: number;
+    iva: number;
+    total: number;
+  }>;
+};
+
+export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord | null> {
+  await requireAnyPermission(["COMPRA_VER", "COMPRA_EDITAR", "INVENTARIO_VER"]);
+
+  const [compraRows, itemRows] = await Promise.all([
+    query<{
+      id_compra: number;
+      numero_compra: string;
+      id_proveedor: number;
+      proveedor_nombre: string;
+      fecha: Date | string;
+      subtotal: number;
+      iva: number;
+      total: number;
+      observaciones: string | null;
+    }>(
+      `SELECT 
+         c.id_compra, c.numero_compra, c.id_proveedor, 
+         COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
+         c.fecha, c.subtotal, c.iva, c.total, c.observaciones
+       FROM compras c
+       LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
+       WHERE c.id_compra = ?`,
+      [id]
+    ).catch(() => []),
+    query<{
+      id_detalle_compra: number;
+      id_variante: number;
+      descripcion: string;
+      cantidad: number;
+      precio_unitario: number;
+      subtotal: number;
+      iva: number;
+      total: number;
+    }>(
+      `SELECT 
+         dc.id_detalle_compra, dc.id_variante, prod.descripcion,
+         dc.cantidad, dc.precio_unitario, dc.subtotal, dc.iva, dc.total
+       FROM detalle_compras dc
+       JOIN variantes_producto vp ON vp.id_variante = dc.id_variante
+       JOIN productos prod ON prod.id_producto = vp.id_producto
+       WHERE dc.id_compra = ?`,
+      [id]
+    ).catch(() => []),
+  ]);
+
+  const compra = compraRows?.[0];
+  if (!compra) return null;
+
+  return {
+    id_compra: Number(compra.id_compra),
+    numero_compra: compra.numero_compra,
+    id_proveedor: Number(compra.id_proveedor),
+    proveedor: compra.proveedor_nombre,
+    fecha: typeof compra.fecha === "string" ? compra.fecha.slice(0, 10) : new Date(compra.fecha).toISOString().slice(0, 10),
+    subtotal: Number(compra.subtotal) || 0,
+    iva: Number(compra.iva) || 0,
+    total: Number(compra.total) || 0,
+    observaciones: compra.observaciones ?? null,
+    items: (itemRows ?? []).map((it) => {
+      const subtotal = Number(it.subtotal) || 0;
+      const iva = Number(it.iva) || 0;
+      const total = Number(it.total) || 0;
+      const pctIva = subtotal > 0 ? Number(((iva / subtotal) * 100).toFixed(0)) : 15;
+
+      return {
+        id_detalle_compra: Number(it.id_detalle_compra),
+        id_variante: Number(it.id_variante),
+        descripcion: it.descripcion,
+        cantidad: Number(it.cantidad) || 1,
+        precio_unitario: Number(it.precio_unitario) || 0,
+        porcentaje_iva: pctIva,
+        subtotal,
+        iva,
+        total,
+      };
+    }),
+  };
+}
+
+export async function createPurchase(input: PurchaseCreateInput): Promise<number> {
+  const context = await requirePermission("COMPRA_CREAR");
+  const parsed = purchaseCreateSchema.parse(input);
+
+  // Calcular subtotales, iva y total
+  let totalSubtotal = 0;
+  let totalIva = 0;
+
+  const processedItems = parsed.items.map((it) => {
+    const itSubtotal = Number((it.cantidad * it.precio_unitario).toFixed(2));
+    const itIva = Number((itSubtotal * (it.porcentaje_iva / 100)).toFixed(2));
+    const itTotal = Number((itSubtotal + itIva).toFixed(2));
+
+    totalSubtotal += itSubtotal;
+    totalIva += itIva;
+
+    return {
+      ...it,
+      subtotal: itSubtotal,
+      iva: itIva,
+      total: itTotal,
+    };
+  });
+
+  totalSubtotal = Number(totalSubtotal.toFixed(2));
+  totalIva = Number(totalIva.toFixed(2));
+  const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
+
+  // Insertar cabecera de compra
+  const result = await execute(
+    `INSERT INTO compras (id_proveedor, id_local, id_usuario, numero_compra, fecha, subtotal, iva, total, observaciones, estado)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA')`,
+    [
+      parsed.id_proveedor,
+      context.id_usuario,
+      parsed.numero_compra,
+      `${parsed.fecha} 10:00:00`,
+      totalSubtotal,
+      totalIva,
+      totalGeneral,
+      parsed.observaciones || null,
+    ]
+  );
+
+  const idCompra = result.insertId;
+
+  // Insertar cada item en detalle_compras y actualizar stock
+  for (const it of processedItems) {
+    await execute(
+      `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [idCompra, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+    );
+
+    // Incrementar stock en bodega matriz (id_bodega = 1)
+    await execute(
+      `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
+       VALUES (?, 1, ?, NOW())
+       ON DUPLICATE KEY UPDATE cantidad = cantidad + VALUES(cantidad), fecha_actualizacion = NOW()`,
+      [it.id_variante, it.cantidad]
+    ).catch(() => null);
+
+    // Registrar movimiento de entrada
+    await execute(
+      `INSERT INTO movimientos_inventario (id_bodega, id_variante, id_usuario, tipo_movimiento, cantidad, saldo_anterior, saldo_nuevo, motivo, fecha)
+       VALUES (1, ?, ?, 'ENTRADA', ?, 0, ?, ?, NOW())`,
+      [it.id_variante, context.id_usuario, it.cantidad, it.cantidad, `Ingreso por compra ${parsed.numero_compra}`]
+    ).catch(() => null);
+  }
+
+  return idCompra;
+}
+
+export async function updatePurchase(id: number, input: PurchaseCreateInput): Promise<void> {
+  const context = await requirePermission("COMPRA_EDITAR");
+  const parsed = purchaseCreateSchema.parse(input);
+
+  // Obtener items actuales para revertir el stock anterior
+  const oldItems = await query<{ id_variante: number; cantidad: number }>(
+    `SELECT id_variante, cantidad FROM detalle_compras WHERE id_compra = ?`,
+    [id]
+  ).catch(() => []);
+
+  for (const oldIt of oldItems ?? []) {
+    await execute(
+      `UPDATE stock_producto 
+       SET cantidad = GREATEST(0, cantidad - ?), fecha_actualizacion = NOW() 
+       WHERE id_variante = ? AND id_bodega = 1`,
+      [Number(oldIt.cantidad) || 0, oldIt.id_variante]
+    ).catch(() => null);
+  }
+
+  // Eliminar detalles anteriores
+  await execute(`DELETE FROM detalle_compras WHERE id_compra = ?`, [id]);
+
+  // Recalcular y preparar nuevos items
+  let totalSubtotal = 0;
+  let totalIva = 0;
+
+  const processedItems = parsed.items.map((it) => {
+    const itSubtotal = Number((it.cantidad * it.precio_unitario).toFixed(2));
+    const itIva = Number((itSubtotal * (it.porcentaje_iva / 100)).toFixed(2));
+    const itTotal = Number((itSubtotal + itIva).toFixed(2));
+
+    totalSubtotal += itSubtotal;
+    totalIva += itIva;
+
+    return {
+      ...it,
+      subtotal: itSubtotal,
+      iva: itIva,
+      total: itTotal,
+    };
+  });
+
+  totalSubtotal = Number(totalSubtotal.toFixed(2));
+  totalIva = Number(totalIva.toFixed(2));
+  const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
+
+  // Actualizar cabecera de compra
+  await execute(
+    `UPDATE compras 
+     SET id_proveedor = ?, 
+         numero_compra = ?, 
+         fecha = ?, 
+         subtotal = ?, 
+         iva = ?, 
+         total = ?, 
+         observaciones = ?
+     WHERE id_compra = ?`,
+    [
+      parsed.id_proveedor,
+      parsed.numero_compra,
+      `${parsed.fecha} 10:00:00`,
+      totalSubtotal,
+      totalIva,
+      totalGeneral,
+      parsed.observaciones || null,
+      id,
+    ]
+  );
+
+  // Insertar nuevos detalles y aplicar nuevo stock
+  for (const it of processedItems) {
+    await execute(
+      `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+    );
+
+    // Incrementar stock en bodega matriz (id_bodega = 1)
+    await execute(
+      `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
+       VALUES (?, 1, ?, NOW())
+       ON DUPLICATE KEY UPDATE cantidad = cantidad + VALUES(cantidad), fecha_actualizacion = NOW()`,
+      [it.id_variante, it.cantidad]
+    ).catch(() => null);
+
+    // Registrar movimiento de inventario por modificación
+    await execute(
+      `INSERT INTO movimientos_inventario (id_bodega, id_variante, id_usuario, tipo_movimiento, cantidad, saldo_anterior, saldo_nuevo, motivo, fecha)
+       VALUES (1, ?, ?, 'ENTRADA', ?, 0, ?, ?, NOW())`,
+      [it.id_variante, context.id_usuario, it.cantidad, it.cantidad, `Ajuste por edición de compra ${parsed.numero_compra}`]
+    ).catch(() => null);
+  }
+}
+
 export async function registerPurchasePayment(input: PurchasePaymentInput) {
   const context = await requirePermission("COMPRA_CREAR");
   const parsed = purchasePaymentSchema.parse(input);
 
-  // Asegurar tabla pagos_compras
-  await execute(`
-    CREATE TABLE IF NOT EXISTS \`pagos_compras\` (
-      \`id_pago_compra\` BIGINT AUTO_INCREMENT PRIMARY KEY,
-      \`id_compra\` BIGINT NOT NULL,
-      \`fecha\` DATE NOT NULL,
-      \`monto\` DECIMAL(12,2) NOT NULL,
-      \`forma_pago\` VARCHAR(50) NOT NULL DEFAULT 'Transferencia',
-      \`referencia\` VARCHAR(100) NULL,
-      \`observaciones\` TEXT NULL,
-      \`registrado_por\` BIGINT NULL,
-      \`activo\` TINYINT(1) NOT NULL DEFAULT 1,
-      \`fecha_creacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      INDEX \`idx_pagos_compras_fecha\` (\`fecha\`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `).catch(() => null);
+  await ensureCustomTables().catch(() => null);
 
   return execute(
     `INSERT INTO pagos_compras (id_compra, fecha, monto, forma_pago, referencia, observaciones, registrado_por, activo)
