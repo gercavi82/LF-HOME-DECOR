@@ -71,16 +71,17 @@ export function ProductForm({ catalogs, defaults }: { catalogs: ProductCatalogs;
       {state.error ? <Alert variant="danger">{state.error}</Alert> : null}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Código Interno Auto-generado */}
+        {/* Código Interno */}
         <label className="block md:col-span-2">
-          <span className="mb-1.5 block text-sm font-medium">Código interno</span>
+          <span className="mb-1.5 block text-sm font-medium">Código interno (opcional)</span>
           <input
-            value={String(defaults?.codigo_interno ?? "Se generará automáticamente al guardar")}
-            readOnly
-            className={`${inputClass} bg-lf-surface-muted font-mono text-sm`}
+            name="codigo_interno"
+            defaultValue={defaults?.codigo_interno ? String(defaults.codigo_interno) : ""}
+            placeholder="Ej: MHC-COB-ECO-2PL-006 (se generará automáticamente si se deja vacío)"
+            className={`${inputClass} font-mono text-sm uppercase`}
           />
           <span className="mt-1 block text-xs text-lf-muted">
-            Identificador único asignado automáticamente según la categoría y tipo.
+            Estructura inteligente: <strong>MHC-[CATEGORÍA]-[TIPO]-[TAMAÑO]-[CORRELATIVO]</strong> (ej: <code>MHC-COB-ECO-2PL-006</code>). Puede ingresar uno propio o dejarlo en blanco para que el sistema lo asigne automáticamente.
           </span>
         </label>
 

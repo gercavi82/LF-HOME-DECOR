@@ -19,6 +19,7 @@ export const productSchema = z.object({
   id_unidad: z.coerce.number().int().positive().default(1),
   descripcion: z.string().trim().max(255).optional().nullable(),
   detalle: z.string().trim().max(1000).optional().nullable(),
+  codigo_interno: z.string().trim().max(50).optional().nullable(),
   codigo_gs1: z.string().trim().max(50).optional().nullable(),
   precio_venta: z.coerce.number().min(0, "El precio debe ser positivo"),
   porcentaje_iva: z.coerce.number().min(0).max(100),
@@ -59,6 +60,42 @@ export type ProductCatalogs = {
 
 function cleanSearch(value: string) {
   return value.normalize("NFKC").replace(/[^\p{L}\p{N}._\-\s]/gu, "").trim().slice(0, 80);
+}
+
+function extractCodeSlug(name: string, fallback: string): string {
+  if (!name) return fallback;
+  const upper = name.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  // Mapeos inteligentes para Tipos de producto
+  if (upper.includes("ECONOMICO") || upper.includes("ECONOMICA")) return "ECO";
+  if (upper.includes("OVEJERO") || upper.includes("PLUS OVEJERO")) return "OVE";
+  if (upper.includes("BRAMANTE")) return "BRA";
+  if (upper.includes("ESPECIAL")) return "ESP";
+  if (upper.includes("ACOLCHADO")) return "ACO";
+  if (upper.includes("IMPERMEABLE")) return "IMP";
+  if (upper.includes("ORTOPEDICA") || upper.includes("SILICONADA")) return "ORT";
+  if (upper.includes("PLUMON") || upper.includes("PLUMÓN")) return "PLU";
+  if (upper.includes("ESTANDAR") || upper.includes("ESTÁNDAR")) return "EST";
+  if (upper.includes("ALGODON") || upper.includes("ALGODÓN")) return "ALG";
+
+  // Mapeos inteligentes para Tamaños
+  if (upper.includes("1 1/2") || upper.includes("1.5") || upper.includes("TWIN")) return "1.5PL";
+  if (upper.includes("2 1/2") || upper.includes("2.5") || upper.includes("QUEEN")) return "2.5PL";
+  if (upper.includes("2 PLAZAS") || upper.includes("FULL")) return "2PL";
+  if (upper.includes("3 PLAZAS") || upper.includes("KING")) return "3PL";
+  if (upper.includes("UNICA") || upper.includes("ESTANDAR")) return "STD";
+
+  // Mapeos para Categorías
+  if (upper.includes("COBERTOR")) return "COB";
+  if (upper.includes("SABANA")) return "SAB";
+  if (upper.includes("EDREDON")) return "EDR";
+  if (upper.includes("ALMOHADA")) return "ALM";
+  if (upper.includes("FUNDA")) return "FDA";
+  if (upper.includes("PROTECTOR") || upper.includes("CUBRECOLCHON")) return "PRO";
+  if (upper.includes("TOALLA")) return "TOA";
+
+  const cleaned = upper.replace(/[^A-Z0-9]/g, "");
+  return cleaned.slice(0, 3) || fallback;
 }
 
 async function readOptions(table: string, idColumn: string): Promise<CatalogOption[]> {
@@ -355,18 +392,37 @@ export async function createProduct(input: ProductInput, image?: File | null): P
 
     const productId = Number(prodRes.insertId);
 
-    // 2. Generar código interno
-    const [catRows] = await conn.execute<RowDataPacket[]>(
-      `SELECT codigo FROM categorias WHERE id_categoria = ? LIMIT 1`,
-      [parsed.id_categoria]
-    );
-    const catCode = ((catRows?.[0] as { codigo?: string })?.codigo || "CAT")
-      .replace(/[^A-Za-z0-9]/g, "")
-      .toUpperCase()
-      .slice(0, 8);
-    const [seqRes] = await conn.execute<ResultSetHeader>(`INSERT INTO secuencia_codigo_interno VALUES (NULL)`);
-    const seq = String(seqRes.insertId).padStart(6, "0");
-    const codigoInterno = `${catCode}-T${parsed.id_tipo}-${seq}`;
+    // 2. Generar código interno estructurado (Ej: MHC-COB-ECO-2PL-006)
+    let codigoInterno = parsed.codigo_interno?.trim();
+    if (!codigoInterno) {
+      const [metaRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT 
+           (SELECT codigo FROM categorias WHERE id_categoria = ?) AS cat_codigo,
+           (SELECT nombre FROM categorias WHERE id_categoria = ?) AS cat_nombre,
+           (SELECT nombre FROM tipos_producto WHERE id_tipo = ?) AS tipo_nombre,
+           (SELECT nombre FROM tamanos WHERE id_tamano = ?) AS tamano_nombre`,
+        [parsed.id_categoria, parsed.id_categoria, parsed.id_tipo, parsed.id_tamano]
+      );
+      const meta = metaRows?.[0] as {
+        cat_codigo?: string;
+        cat_nombre?: string;
+        tipo_nombre?: string;
+        tamano_nombre?: string;
+      };
+
+      const catSlug = meta?.cat_codigo?.trim() || extractCodeSlug(meta?.cat_nombre || "", "COB");
+      const tipoSlug = extractCodeSlug(meta?.tipo_nombre || "", "ECO");
+      const tamSlug = extractCodeSlug(meta?.tamano_nombre || "", "2PL");
+
+      const [countRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT COUNT(*) AS total FROM variantes_producto WHERE codigo_interno LIKE ?`,
+        [`MHC-${catSlug}-${tipoSlug}-${tamSlug}-%`]
+      );
+      const nextNum = Number(countRows?.[0]?.total || 0) + 1;
+      const seq = String(nextNum).padStart(3, "0");
+
+      codigoInterno = `MHC-${catSlug}-${tipoSlug}-${tamSlug}-${seq}`;
+    }
 
     // 3. Guardar imagen si existe
     let imageUrl: string | null = null;
@@ -536,6 +592,13 @@ export async function updateProduct(id: number, input: ProductInput, image?: Fil
 
     try {
       await conn.execute(variantSql, variantParams);
+
+    if (parsed.codigo_interno && parsed.codigo_interno.trim().length > 0) {
+      await conn.execute(
+        `UPDATE variantes_producto SET codigo_interno = ? WHERE id_variante = ?`,
+        [parsed.codigo_interno.trim(), current.id_variante]
+      );
+    }
     } catch (error: unknown) {
       if (newImageUrl) await deleteLocalImage(newImageUrl);
       const err = error as { code?: string };
