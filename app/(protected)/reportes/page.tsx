@@ -196,31 +196,36 @@ export default async function ReportsPage({
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Ventas Totales</p>
             <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(data.kpis.totalVentas)}</p>
-            <p className="mt-1 text-xs text-lf-muted">{data.kpis.totalUnidades} unidades vendidas</p>
+            <p className="mt-1 text-xs text-lf-muted">{data.kpis.totalUnidades} unidades vendidas · Costo: {currency.format(data.kpis.totalCostos)}</p>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-amber-500">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Utilidad Bruta (Ventas − Costo)</p>
-            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(data.kpis.utilidadBruta)}</p>
-            <p className="mt-1 text-xs text-lf-muted">Costo mercadería: {currency.format(data.kpis.totalCostos)}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Comisión Asesores (60%)</p>
+            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(data.kpis.comisionesAsesores)}</p>
+            <p className="mt-1 text-xs text-lf-muted">Pagado: {currency.format(data.kpis.comisionesPagadas)} · Pendiente: {currency.format(data.kpis.comisionesPendientes)}</p>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-rose-500">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Operativos & Local</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Deducidos del Local</p>
             <p className="mt-1 text-2xl font-bold text-rose-700">{currency.format(data.kpis.gastosOperativos)}</p>
-            <p className="mt-1 text-xs text-lf-muted">Fijos, mejoras y marketing</p>
+            <p className="mt-1 text-xs text-lf-muted">Fijos, mejoras, marketing y operativos</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-emerald-600 bg-emerald-50/30">
+        <Card className={`border-l-4 ${data.kpis.saldoComisionLocal >= 0 ? "border-l-emerald-600 bg-emerald-50/30" : "border-l-red-600 bg-red-50/30"}`}>
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Utilidad Neta Real</p>
-            <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(data.kpis.utilidadNetaReal)}</p>
-            <p className="mt-1 text-xs text-emerald-600">Margen neto operativo</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-900">Saldo Comisión Local (40%)</p>
+              <Badge variant={data.kpis.saldoComisionLocal >= 0 ? "success" : "danger"}>40% − Gastos</Badge>
+            </div>
+            <p className={`mt-1 text-2xl font-bold ${data.kpis.saldoComisionLocal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+              {currency.format(data.kpis.saldoComisionLocal)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-700">Comisión 40% ({currency.format(data.kpis.comisionesLocal)}) − Gastos ({currency.format(data.kpis.gastosOperativos)})</p>
           </CardContent>
         </Card>
       </div>
@@ -436,6 +441,53 @@ export default async function ReportsPage({
             </tfoot>
           </Table>
         </TableContainer>
+      </div>
+
+      {/* SECCIÓN 4: LIQUIDACIÓN DE PARTICIPACIÓN DEL LOCAL (40%) VS GASTOS DEDUCIDOS */}
+      <div className="mb-8 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
+              <Receipt size={19} className="text-lf-terracotta" /> Liquidación Comisión del Local (40%) vs Gastos Deducidos
+            </h2>
+            <p className="text-sm text-lf-muted">Estado de cuenta de la comisión del local y deducción directa de gastos operativos, fijos y mejoras.</p>
+          </div>
+          <Link
+            href="/gastos/nuevo"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-lf-navy px-3 text-xs font-semibold text-white hover:bg-lf-navy-hover"
+          >
+            + Registrar nuevo gasto
+          </Link>
+        </div>
+
+        <Card className="overflow-hidden border bg-lf-surface shadow-sm">
+          <div className="grid divide-y sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+            <div className="p-4 sm:p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">1. Venta Total Período</p>
+              <p className="mt-2 text-xl font-bold text-lf-navy">{currency.format(data.kpis.totalVentas)}</p>
+              <p className="mt-1 text-xs text-lf-muted">Utilidad: {currency.format(data.kpis.utilidadBruta)}</p>
+            </div>
+            <div className="p-4 sm:p-5 bg-blue-50/30">
+              <p className="text-xs font-semibold uppercase tracking-wider text-blue-900">2. Comisión Local (40%)</p>
+              <p className="mt-2 text-xl font-bold text-blue-800">{currency.format(data.kpis.comisionesLocal)}</p>
+              <p className="mt-1 text-xs text-blue-600">40% de la utilidad bruta</p>
+            </div>
+            <div className="p-4 sm:p-5 bg-rose-50/30">
+              <p className="text-xs font-semibold uppercase tracking-wider text-rose-900">3. Gastos Deducidos (−)</p>
+              <p className="mt-2 text-xl font-bold text-rose-700">{currency.format(data.kpis.gastosOperativos)}</p>
+              <p className="mt-1 text-xs text-rose-600">Pagados de la comisión</p>
+            </div>
+            <div className={`p-4 sm:p-5 ${data.kpis.saldoComisionLocal >= 0 ? "bg-emerald-50/60" : "bg-red-50/60"}`}>
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-900">4. Saldo Disponible (40% − Gastos)</p>
+              <p className={`mt-2 text-2xl font-black ${data.kpis.saldoComisionLocal >= 0 ? "text-emerald-800" : "text-red-700"}`}>
+                {currency.format(data.kpis.saldoComisionLocal)}
+              </p>
+              <p className="mt-1 text-xs font-medium text-emerald-700">
+                {data.kpis.saldoComisionLocal >= 0 ? "Saldo a favor del local" : "Déficit por gastos superiores a comisión"}
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
 
       {/* SECCIÓN 4: HISTORIAL DE ABONOS Y PAGOS REALIZADOS */}

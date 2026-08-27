@@ -42,34 +42,39 @@ export default async function ExpensesPage({
 
       {created ? <Alert variant="success" className="mb-5">Gasto registrado correctamente.</Alert> : null}
 
-      {/* Tarjetas de Resumen */}
+      {/* Tarjetas de Resumen Financiero: Comisión del 40% vs Gastos Deducidos */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-l-4 border-l-lf-navy">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Total Gastos</p>
-            <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(summary.total)}</p>
-            <p className="mt-1 text-xs text-lf-muted">{summary.count} registros</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Comisión Local (40%)</p>
+            <p className="mt-1 text-2xl font-bold text-lf-navy">{currency.format(summary.comisionLocal40)}</p>
+            <p className="mt-1 text-xs text-lf-muted">40% de utilidad de ventas</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-rose-500">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Deducidos (−)</p>
+            <p className="mt-1 text-2xl font-bold text-rose-700">{currency.format(summary.total)}</p>
+            <p className="mt-1 text-xs text-lf-muted">{summary.count} gasto(s) registrados</p>
+          </CardContent>
+        </Card>
+
+        <Card className={`border-l-4 ${summary.saldoComisionLocal >= 0 ? "border-l-emerald-600 bg-emerald-50/40" : "border-l-red-600 bg-red-50/40"}`}>
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-900">Saldo Neto Comisión 40%</p>
+            <p className={`mt-1 text-2xl font-bold ${summary.saldoComisionLocal >= 0 ? "text-emerald-800" : "text-red-700"}`}>
+              {currency.format(summary.saldoComisionLocal)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-700 font-medium">Comisión 40% − Gastos</p>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-amber-500">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Fijos (Luz/Arriendo)</p>
-            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(summary.fijo)}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Mejoras Local</p>
-            <p className="mt-1 text-2xl font-bold text-blue-700">{currency.format(summary.mejoras)}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Marketing & Operativo</p>
-            <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(summary.marketing + summary.operativo)}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Gastos Fijos & Mejoras</p>
+            <p className="mt-1 text-2xl font-bold text-amber-700">{currency.format(summary.fijo + summary.mejoras)}</p>
+            <p className="mt-1 text-xs text-lf-muted">Operativo & Mktg: {currency.format(summary.operativo + summary.marketing)}</p>
           </CardContent>
         </Card>
       </div>

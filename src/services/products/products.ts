@@ -1,10 +1,33 @@
 import "server-only";
 
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { query, queryOne, transaction } from "@/src/lib/db/mysql";
+import { query, queryOne, transaction, execute } from "@/src/lib/db/mysql";
 import { deleteLocalImage, saveLocalImage } from "@/src/lib/storage/local";
 import { requirePermission } from "@/src/services/auth/authorization";
+
+function getLocalProductImage(productId: number, dbUrl?: string | null): string | null {
+  if (dbUrl && dbUrl.trim()) return dbUrl.trim();
+  try {
+    const dir = join(process.cwd(), "public", "uploads", "productos", String(productId));
+    if (existsSync(dir)) {
+      const files = readdirSync(dir).filter((f) => /\.(jpe?g|png|webp|gif|svg)$/i.test(f));
+      if (files.length > 0) {
+        const foundUrl = `/uploads/productos/${productId}/${files[0]}`;
+        execute(
+          `UPDATE variantes_producto SET imagen_url = ? WHERE id_producto = ? AND (imagen_url IS NULL OR imagen_url = '')`,
+          [foundUrl, productId]
+        ).catch(() => null);
+        return foundUrl;
+      }
+    }
+  } catch {
+    // Ignore filesystem read errors
+  }
+  return null;
+}
 
 export const productIdSchema = z.coerce.number().int().positive();
 
@@ -218,7 +241,7 @@ export async function listProducts(search = ""): Promise<ProductListItem[]> {
       precio_venta: Number(row.precio_venta) || 0,
       porcentaje_iva: Number(row.porcentaje_iva) || 0,
       stock_minimo: Number(row.stock_minimo) || 0,
-      imagen_url: row.imagen_url ?? null,
+      imagen_url: getLocalProductImage(Number(row.id_producto), row.imagen_url),
       activo: Boolean(row.activo),
     }));
   } catch (error) {
@@ -331,7 +354,7 @@ export async function getProductById(id: number | string) {
       precio_venta: Number(row.precio_venta),
       porcentaje_iva: Number(row.porcentaje_iva),
       stock_minimo: Number(row.stock_minimo),
-      imagen_url: row.imagen_url,
+      imagen_url: getLocalProductImage(Number(row.id_producto), row.imagen_url),
       variante_activa: Boolean(row.variante_activa),
       categoria: row.categoria,
       tipo: row.tipo,

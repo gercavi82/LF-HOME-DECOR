@@ -98,23 +98,32 @@ ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `activo` = 1;
 
 -- 6. INSERTAR ASESORES Y USUARIOS REALES (PASSWORD UNIFICADO: 1712345678)
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
+(1, '1712345678', 'Administrador', 'Principal', 'admin@lfhomedecor.com', '0999999999', 1, 1, '$2b$12$NLoMl3EOTW2DezPQQRfEAeOWxD8Tminj/V0IQH5lY1IB3soItNSsG', 0, 0, 0, 1)
+ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `bloqueado` = 0, `intentos_fallidos` = 0, `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
+(2, '1712345671', 'Aida', 'Álvarez', 'aida.alvarez@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$NLoMl3EOTW2DezPQQRfEAeOWxD8Tminj/V0IQH5lY1IB3soItNSsG', 0, 0, 0, 1)
+ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `bloqueado` = 0, `intentos_fallidos` = 0, `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
+(3, '1712345672', 'Fernanda', 'Oñate', 'fernanda.onate@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$NLoMl3EOTW2DezPQQRfEAeOWxD8Tminj/V0IQH5lY1IB3soItNSsG', 0, 0, 0, 1)
+ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `bloqueado` = 0, `intentos_fallidos` = 0, `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(4, '1712345673', 'Iralda', 'Manosalvas', 'iralda.manosalvas@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
+(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$NLoMl3EOTW2DezPQQRfEAeOWxD8Tminj/V0IQH5lY1IB3soItNSsG', 0, 0, 0, 1)
+ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `bloqueado` = 0, `intentos_fallidos` = 0, `activo` = 1;
 INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(5, '1712345674', 'Lizeth', 'Quishpe', 'lizeth.quishpe@lfhomedecor.com', '0999999999', 3, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
-INSERT INTO `usuarios` (`id_usuario`, `cedula`, `nombres`, `apellidos`, `correo`, `telefono`, `id_perfil`, `id_local`, `password_hash`, `debe_cambiar_password`, `intentos_fallidos`, `bloqueado`, `activo`) VALUES
-(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$qJHMcNiWFdyr70ir6Ok0hOMIBEWYWhBFiRV3Moq72RNVZRmvgQmHq', 0, 0, 0, 1)
-ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `activo` = 1;
+(6, '1712345670', 'Ventas', 'Local Matriz', 'local@lfhomedecor.com', '0999999999', 2, 1, '$2b$12$NLoMl3EOTW2DezPQQRfEAeOWxD8Tminj/V0IQH5lY1IB3soItNSsG', 0, 0, 0, 1)
+ON DUPLICATE KEY UPDATE `nombres` = VALUES(`nombres`), `apellidos` = VALUES(`apellidos`), `correo` = VALUES(`correo`), `id_perfil` = VALUES(`id_perfil`), `password_hash` = VALUES(`password_hash`), `bloqueado` = 0, `intentos_fallidos` = 0, `activo` = 1;
+
+-- Desactivar usuario Iralda Manosalvas si existiera en la BD
+UPDATE `usuarios` SET `activo` = 0 WHERE `cedula` = '1712345673' OR `nombres` LIKE '%Iralda%';
+
+-- FORMAS DE PAGO (EFECTIVO, TRANSFERENCIA, DE UNA, MIXTO)
+INSERT INTO `formas_pago` (`id_forma_pago`, `codigo`, `nombre`, `requiere_referencia`, `activo`) VALUES
+(1, 'EFECTIVO', 'Efectivo', 0, 1),
+(2, 'TRANSFERENCIA', 'Transferencia Bancaria', 1, 1),
+(3, 'DE_UNA', 'De Una', 1, 1),
+(4, 'MIXTO', 'Mixto (Efectivo + Transferencia)', 0, 1)
+ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `codigo` = VALUES(`codigo`), `requiere_referencia` = VALUES(`requiere_referencia`), `activo` = 1;
+UPDATE `formas_pago` SET `activo` = 0 WHERE `codigo` = 'TARJETA';
 
 -- 7. INSERTAR PRODUCTOS Y VARIANTES REALES
 INSERT INTO `productos` (`id_producto`, `id_categoria`, `id_tipo`, `id_marca`, `descripcion`, `detalle`, `activo`) VALUES

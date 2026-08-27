@@ -119,6 +119,10 @@ export function ExpenseForm() {
               className="w-full rounded-xl border bg-lf-surface p-3.5 text-sm outline-none focus:border-lf-terracotta"
             />
           </label>
+          <div className="sm:col-span-2 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 flex items-center gap-2">
+            <span>💡</span>
+            <span><strong>Regla de Pago:</strong> Este gasto operativo se liquidará y deducirá automáticamente de la <strong>comisión del 40% del local</strong>.</span>
+          </div>
         </CardContent>
       </Card>
 

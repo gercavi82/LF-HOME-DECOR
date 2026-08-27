@@ -34,6 +34,10 @@ export type ExpenseSummary = {
   operativo: number;
   mejoras: number;
   count: number;
+  totalVentas: number;
+  utilidadBruta: number;
+  comisionLocal40: number;
+  saldoComisionLocal: number;
 };
 
 type ExpenseRowRaw = {
@@ -109,14 +113,32 @@ export async function listExpenses(filters?: {
       usuario_nombre: r.usuario_nombre ?? "Administración",
     }));
 
+    // Calcular ventas y comisión del 40% del local para el período
+    let salesSql = `SELECT COALESCE(SUM(total), 0) AS total_ventas FROM ventas WHERE UPPER(COALESCE(estado, '')) NOT IN ('ANULADA', 'ANULADO')`;
+    const salesParams: unknown[] = [];
+    if (filters?.month && /^\d{4}-\d{2}$/.test(filters.month)) {
+      salesSql += ` AND DATE_FORMAT(fecha, '%Y-%m') = ?`;
+      salesParams.push(filters.month);
+    }
+    const salesRows = await query<{ total_ventas: number }>(salesSql, salesParams).catch(() => []);
+    const totalVentas = Number(salesRows?.[0]?.total_ventas) || 0;
+    const utilidadBruta = Number((totalVentas * 0.327).toFixed(2));
+    const comisionLocal40 = Number((utilidadBruta * 0.40).toFixed(2));
+    const totalGastos = expenses.reduce((sum, e) => sum + e.monto, 0);
+    const saldoComisionLocal = Number((comisionLocal40 - totalGastos).toFixed(2));
+
     const summary: ExpenseSummary = {
-      total: expenses.reduce((sum, e) => sum + e.monto, 0),
+      total: totalGastos,
       fijo: expenses.filter((e) => e.categoria === "FIJO").reduce((sum, e) => sum + e.monto, 0),
       variable: expenses.filter((e) => e.categoria === "VARIABLE").reduce((sum, e) => sum + e.monto, 0),
       marketing: expenses.filter((e) => e.categoria === "MARKETING").reduce((sum, e) => sum + e.monto, 0),
       operativo: expenses.filter((e) => e.categoria === "OPERATIVO").reduce((sum, e) => sum + e.monto, 0),
       mejoras: expenses.filter((e) => e.categoria === "MEJORAS").reduce((sum, e) => sum + e.monto, 0),
       count: expenses.length,
+      totalVentas,
+      utilidadBruta,
+      comisionLocal40,
+      saldoComisionLocal,
     };
 
     return { expenses, summary };
@@ -124,7 +146,19 @@ export async function listExpenses(filters?: {
     console.error("listExpenses ERROR:", error);
     return {
       expenses: [],
-      summary: { total: 0, fijo: 0, variable: 0, marketing: 0, operativo: 0, mejoras: 0, count: 0 },
+      summary: {
+        total: 0,
+        fijo: 0,
+        variable: 0,
+        marketing: 0,
+        operativo: 0,
+        mejoras: 0,
+        count: 0,
+        totalVentas: 0,
+        utilidadBruta: 0,
+        comisionLocal40: 0,
+        saldoComisionLocal: 0,
+      },
     };
   }
 }

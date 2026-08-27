@@ -60,6 +60,7 @@ export type FinancialReportData = {
     totalUnidades: number;
     comisionesAsesores: number;
     comisionesLocal: number;
+    saldoComisionLocal: number;
     comisionesPagadas: number;
     comisionesPendientes: number;
   };
@@ -366,6 +367,7 @@ export async function getFinancialReport(filters?: {
     const comisionesLocal = Number((utilidadBruta * 0.40).toFixed(2));
     const totalGastos = expSummary?.total || 0;
     const utilidadNetaReal = utilidadBruta - totalGastos;
+    const saldoComisionLocal = Number((comisionesLocal - totalGastos).toFixed(2));
 
     return {
       filters: {
@@ -384,6 +386,7 @@ export async function getFinancialReport(filters?: {
         totalUnidades,
         comisionesAsesores,
         comisionesLocal,
+        saldoComisionLocal,
         comisionesPagadas: pagadoTotal,
         comisionesPendientes: pendienteTotal,
       },
@@ -406,6 +409,7 @@ export async function getFinancialReport(filters?: {
         totalUnidades: 0,
         comisionesAsesores: 0,
         comisionesLocal: 0,
+        saldoComisionLocal: 0,
         comisionesPagadas: 0,
         comisionesPendientes: 0,
       },

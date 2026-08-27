@@ -51,11 +51,11 @@ if (inputPassword.length < 8) {
 async function main() {
   console.log("\n🔐 Configurando Administrador Principal (Cédula: " + CEDULA + ")...");
 
-  const host = process.env.DB_HOST || "localhost";
-  const port = Number(process.env.DB_PORT || "3306");
-  const user = process.env.DB_USER || "root";
-  const password = process.env.DB_PASSWORD || "";
-  const database = process.env.DB_NAME || "lf_home_decor";
+  const host = process.env.MYSQL_HOST || process.env.DB_HOST || "localhost";
+  const port = Number(process.env.MYSQL_PORT || process.env.DB_PORT || "3306");
+  const user = process.env.MYSQL_USER || process.env.DB_USER || "root";
+  const password = process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || "";
+  const database = process.env.MYSQL_DATABASE || process.env.DB_NAME || "lf_home_decor";
 
   let connection;
   try {
@@ -68,7 +68,7 @@ async function main() {
     });
   } catch (err) {
     console.error("❌ Error de conexión a la base de datos:", err.message);
-    console.log("Verifique las variables en .env.local (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME).");
+    console.log("Verifique las variables en .env.local (MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE).");
     process.exit(1);
   }
 
@@ -79,29 +79,34 @@ async function main() {
 
     // 2. Asegurar perfil ADMINISTRADOR
     await connection.execute(`
-      INSERT INTO perfiles (codigo, nombre, descripcion, activo)
-      VALUES ('ADMINISTRADOR', 'Administrador', 'Acceso total y configuración del sistema', 1)
+      INSERT INTO perfiles (id_perfil, codigo, nombre, descripcion, activo)
+      VALUES (1, 'ADMINISTRADOR', 'Administrador', 'Acceso total y configuración del sistema', 1)
       ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), activo = 1
     `);
 
     const [perfilRows] = await connection.execute(
-      "SELECT id_perfil FROM perfiles WHERE codigo = 'ADMINISTRADOR' LIMIT 1"
+      "SELECT id_perfil FROM perfiles WHERE codigo = 'ADMINISTRADOR' OR id_perfil = 1 LIMIT 1"
     );
-    const adminProfile = perfilRows[0];
+    const adminProfile = perfilRows[0] || { id_perfil: 1 };
 
     // 3. Asignar todos los permisos al perfil ADMINISTRADOR
     await connection.execute(
       `INSERT IGNORE INTO perfil_permisos (id_perfil, id_permiso)
        SELECT ?, id_permiso FROM permisos WHERE activo = 1`,
       [adminProfile.id_perfil]
-    );// 4. Asegurar local matriz
+    );
+
+    // 4. Asegurar local matriz
     await connection.execute(`
       INSERT INTO locales (id_local, codigo, nombre, direccion, telefono, activo)
       VALUES (1, 'MATRIZ', 'Local Matriz', 'Av. Principal #100', '0999999999', 1)
       ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), activo = 1
     `);
 
-    // 5. Crear o actualizar usuario administrador
+    // 5. Limpiar rate limits
+    await connection.execute(`DELETE FROM auth_rate_limits`).catch(() => null);
+
+    // 6. Crear o actualizar usuario administrador
     await connection.execute(`
       INSERT INTO usuarios (
         cedula, nombres, apellidos, correo, telefono,
@@ -124,16 +129,16 @@ async function main() {
         intentos_fallidos = 0,
         bloqueado = 0,
         activo = 1
-    `, [CEDULA, NOMBRES, APELLIDOS, CORREO, TELEFONO, perfilId, passwordHash]);
+    `, [CEDULA, NOMBRES, APELLIDOS, CORREO, TELEFONO, adminProfile.id_perfil, passwordHash]);
 
     console.log("✅ Administrador principal configurado exitosamente:");
     console.log("   - Cédula: " + CEDULA);
+    console.log("   - Contraseña: " + inputPassword);
     console.log("   - Perfil: ADMINISTRADOR");
     console.log("   - Activo: true");
     console.log("   - Bloqueado: false");
-    console.log("   - Debe cambiar contraseña: false");
-    console.log("   - Permisos asignados a través de perfil_permisos: Sí (todos)");
-    console.log("   - Contraseña: [Hash Bcrypt Seguro Almacenado]\n");
+    console.log("   - Intentos fallidos: 0");
+    console.log("   - Permisos asignados: Todos");
   } catch (err) {
     console.error("❌ Error ejecutando seed de administrador:", err);
     process.exit(1);

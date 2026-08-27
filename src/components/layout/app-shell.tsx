@@ -83,14 +83,18 @@ const routeLabels: Record<string, string> = {
 
 function Brand() {
   return (
-    <Link href="/dashboard" className="block overflow-hidden rounded-2xl bg-lf-surface/95 shadow-sm" aria-label="L&F Home Decor - Inicio">
+    <Link
+      href="/dashboard"
+      className="block overflow-hidden rounded-2xl bg-white p-2.5 shadow-sm border border-stone-200/70 transition hover:opacity-95"
+      aria-label="Mi Hogar y Confort - Inicio"
+    >
       <Image
         src="/logo/lf-home-decor.png"
-        alt="L&F Home Decor"
+        alt="Mi Hogar y Confort"
         width={360}
         height={180}
         priority
-        className="h-[5.5rem] w-full object-cover object-center"
+        className="h-20 w-full object-contain object-center"
       />
     </Link>
   );

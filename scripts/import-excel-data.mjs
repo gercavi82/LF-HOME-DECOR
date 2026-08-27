@@ -20,7 +20,6 @@ const advisors = [
   { code: "ADMIN", cedula: "1712345678", nombres: "Administrador", apellidos: "Principal", perfil: 1, correo: "admin@lfhomedecor.com" },
   { code: "AA", cedula: "1712345671", nombres: "Aida", apellidos: "Álvarez", perfil: 3, correo: "aida.alvarez@lfhomedecor.com" },
   { code: "FO", cedula: "1712345672", nombres: "Fernanda", apellidos: "Oñate", perfil: 3, correo: "fernanda.onate@lfhomedecor.com" },
-  { code: "IM", cedula: "1712345673", nombres: "Iralda", apellidos: "Manosalvas", perfil: 3, correo: "iralda.manosalvas@lfhomedecor.com" },
   { code: "LQ", cedula: "1712345674", nombres: "Lizeth", apellidos: "Quishpe", perfil: 3, correo: "lizeth.quishpe@lfhomedecor.com" },
   { code: "LOCAL", cedula: "1712345670", nombres: "Ventas", apellidos: "Local Matriz", perfil: 2, correo: "local@lfhomedecor.com" }
 ];
