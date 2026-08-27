@@ -19,6 +19,8 @@ const fieldLabels: Record<CatalogField, string> = {
   descripcion: "Descripción / Notas",
   codigo_hex: "Color hexadecimal",
   ruc_cedula: "RUC / Cédula",
+  identificacion: "Cédula / RUC",
+  razon_social: "Razón Social (Opcional)",
   telefono: "Teléfono / Celular",
   correo: "Correo Electrónico",
   direccion: "Dirección física",
@@ -74,7 +76,11 @@ export default async function CatalogPage({ params, searchParams }: {
               
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium">
-                  {key === "proveedores" ? "Razón Social / Nombre" : "Nombre"}
+                  {key === "proveedores"
+                    ? "Razón Social / Nombre"
+                    : key === "clientes"
+                    ? "Nombres Completos / Contacto"
+                    : "Nombre"}
                 </span>
                 <input
                   name="nombre"
@@ -82,7 +88,15 @@ export default async function CatalogPage({ params, searchParams }: {
                   minLength={2}
                   maxLength={150}
                   defaultValue={editing?.nombre ?? ""}
-                  placeholder={key === "proveedores" ? "Ej. Distribuidora Textil S.A." : key === "bodegas" ? "Ej. Bodega Principal Matriz" : undefined}
+                  placeholder={
+                    key === "proveedores"
+                      ? "Ej. Distribuidora Textil S.A."
+                      : key === "clientes"
+                      ? "Ej. Juan Pérez"
+                      : key === "bodegas"
+                      ? "Ej. Bodega Principal Matriz"
+                      : undefined
+                  }
                   className="h-11 w-full rounded-xl border bg-white px-3.5 outline-none focus:border-lf-terracotta focus:ring-2 focus:ring-lf-terracotta/20"
                 />
               </label>
@@ -134,18 +148,21 @@ export default async function CatalogPage({ params, searchParams }: {
                         type={field === "correo" ? "email" : "text"}
                         required={
                           (key === "unidades" && field === "codigo") ||
-                          (key === "proveedores" && field === "ruc_cedula")
+                          (key === "proveedores" && field === "ruc_cedula") ||
+                          (key === "clientes" && field === "identificacion")
                         }
                         maxLength={field === "codigo_hex" ? 7 : field === "direccion" ? 255 : 50}
                         placeholder={
                           field === "codigo_hex"
                             ? "#C96D4D"
-                            : field === "ruc_cedula"
-                            ? "1790012345001"
+                            : field === "ruc_cedula" || field === "identificacion"
+                            ? "1712345678 o 1790012345001"
                             : field === "telefono"
                             ? "0991234567"
                             : field === "correo"
-                            ? "contacto@proveedor.com"
+                            ? "cliente@correo.com"
+                            : field === "razon_social"
+                            ? "Comercializadora Ejemplo Cía. Ltda."
                             : undefined
                         }
                         defaultValue={editing?.[field] ?? ""}
@@ -196,9 +213,11 @@ export default async function CatalogPage({ params, searchParams }: {
                           ? "Local Asignado"
                           : key === "proveedores"
                           ? "RUC / Cédula"
+                          : key === "clientes"
+                          ? "Cédula / RUC"
                           : "Detalle"}
                       </TableHead>
-                      {key === "proveedores" || key === "locales" || key === "bodegas" ? (
+                      {key === "proveedores" || key === "locales" || key === "bodegas" || key === "clientes" ? (
                         <TableHead>Contacto / Ubicación</TableHead>
                       ) : null}
                       <TableHead>Estado</TableHead>
@@ -227,6 +246,10 @@ export default async function CatalogPage({ params, searchParams }: {
                             <span className="font-mono text-xs font-semibold text-slate-700">
                               {item.ruc_cedula || "—"}
                             </span>
+                          ) : key === "clientes" ? (
+                            <span className="font-mono text-xs font-semibold text-slate-700">
+                              {item.identificacion || "—"}
+                            </span>
                           ) : (
                             <span className="text-lf-muted">
                               {item.codigo || item.codigo_hex || item.descripcion || "—"}
@@ -234,21 +257,20 @@ export default async function CatalogPage({ params, searchParams }: {
                           )}
                         </TableCell>
 
-                        {key === "proveedores" || key === "locales" || key === "bodegas" ? (
+                        {key === "proveedores" || key === "locales" || key === "bodegas" || key === "clientes" ? (
                           <TableCell className="text-xs text-lf-muted">
                             {key === "bodegas" ? (
                               item.descripcion || "—"
                             ) : (
-                              <div>
+                              <div className="space-y-0.5">
+                                {item.razon_social ? <div className="font-semibold text-slate-800">🏢 {item.razon_social}</div> : null}
                                 {item.telefono ? <div>📞 {item.telefono}</div> : null}
-                                {item.correo ? <div>✉️ {item.correo}</div> : null}
                                 {item.direccion ? <div>📍 {item.direccion}</div> : null}
-                                {!item.telefono && !item.correo && !item.direccion ? "—" : null}
+                                {!item.telefono && !item.correo && !item.direccion && !item.razon_social ? "—" : null}
                               </div>
                             )}
                           </TableCell>
                         ) : null}
-
                         <TableCell>
                           <Badge variant={item.activo ? "success" : "neutral"}>
                             {item.activo ? "Activo" : "Inactivo"}

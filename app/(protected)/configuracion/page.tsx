@@ -8,6 +8,7 @@ import {
   Truck,
   Store,
   Warehouse,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -17,6 +18,7 @@ import { requirePermission } from "@/src/services/auth/authorization";
 import { catalogDefinitions, type CatalogKey } from "@/src/services/catalogs/catalogs";
 
 const icons: Record<CatalogKey, typeof Tags> = {
+  clientes: Users,
   proveedores: Truck,
   locales: Store,
   bodegas: Warehouse,
@@ -33,7 +35,7 @@ const icons: Record<CatalogKey, typeof Tags> = {
 export default async function SettingsPage() {
   await requirePermission("CONFIGURACION_VER");
 
-  const operationsCatalogs: CatalogKey[] = ["proveedores", "locales", "bodegas"];
+  const operationsCatalogs: CatalogKey[] = ["clientes", "proveedores", "locales", "bodegas"];
   const productCatalogs: CatalogKey[] = [
     "categorias",
     "tipos",

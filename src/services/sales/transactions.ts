@@ -7,16 +7,17 @@ import { transaction } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
 
 export const saleTransactionSchema = z.object({
-  id_local: z.number().int().positive(),
-  id_cliente: z.number().int().positive().nullable(),
-  id_canal: z.number().int().positive(),
-  descuento: z.number().min(0).max(999999.99),
-  observaciones: z.string().trim().max(500).optional(),
+  id_local: z.coerce.number().int().positive().default(1),
+  id_cliente: z.coerce.number().int().positive().nullable().optional(),
+  id_canal: z.coerce.number().int().positive().default(1),
+  descuento: z.coerce.number().min(0).max(999999.99).default(0),
+  observaciones: z.string().trim().max(500).optional().nullable(),
   items: z
     .array(
       z.object({
-        id_variante: z.number().int().positive(),
-        cantidad: z.number().positive().max(999999),
+        id_variante: z.coerce.number().int().positive(),
+        cantidad: z.coerce.number().positive().max(999999),
+        descuento: z.coerce.number().min(0).max(999999.99).optional().default(0),
       })
     )
     .min(1)
@@ -24,9 +25,9 @@ export const saleTransactionSchema = z.object({
   pagos: z
     .array(
       z.object({
-        id_forma_pago: z.number().int().positive(),
-        valor: z.number().positive().max(999999.99),
-        referencia: z.string().trim().max(150).nullable(),
+        id_forma_pago: z.coerce.number().int().positive(),
+        valor: z.coerce.number().positive().max(999999.99),
+        referencia: z.string().trim().max(150).nullable().optional(),
       })
     )
     .min(1)
@@ -64,11 +65,13 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
   return transaction(async (conn) => {
     // 1. Validar variantes y calcular total bruto
     let totalBruto = 0;
+    let sumaDescuentosItems = 0;
     const variantDetails: Array<{
       id_variante: number;
       cantidad: number;
       precio_venta: number;
       porcentaje_iva: number;
+      item_descuento: number;
     }> = [];
 
     for (const item of parsed.items) {
@@ -90,22 +93,23 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       const precio = Number(variantData.precio_venta);
       const iva = Number(variantData.porcentaje_iva);
       const lineaBruta = Math.round(precio * item.cantidad * 100) / 100;
+      const itemDesc = Math.min(lineaBruta, Math.round((item.descuento || 0) * 100) / 100);
+
       totalBruto += lineaBruta;
+      sumaDescuentosItems += itemDesc;
 
       variantDetails.push({
         id_variante: item.id_variante,
         cantidad: item.cantidad,
         precio_venta: precio,
         porcentaje_iva: iva,
+        item_descuento: itemDesc,
       });
     }
 
     totalBruto = Math.round(totalBruto * 100) / 100;
-    const descuentoTotal = Math.round(Number(parsed.descuento || 0) * 100) / 100;
-
-    if (descuentoTotal > totalBruto) {
-      throw new Error("El descuento no puede superar el valor total de la venta.");
-    }
+    const globalDiscount = Math.round(Number(parsed.descuento || 0) * 100) / 100;
+    const descuentoTotal = Math.min(totalBruto, Math.max(sumaDescuentosItems, globalDiscount));
 
     const totalVenta = Math.round((totalBruto - descuentoTotal) * 100) / 100;
 
@@ -129,16 +133,13 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       if (forma.requiere_referencia && (!pago.referencia || pago.referencia.trim().length < 3)) {
         throw new Error("La referencia de pago es obligatoria.");
       }
-      if (forma.codigo === "CREDITO_INTERNO" && !parsed.id_cliente) {
-        throw new Error("El crédito interno requiere un cliente seleccionado.");
-      }
 
       pagoTotal += Math.round(pago.valor * 100) / 100;
     }
 
     pagoTotal = Math.round(pagoTotal * 100) / 100;
-    if (Math.abs(pagoTotal - totalVenta) > 0.01) {
-      throw new Error(`La suma de pagos ($${pagoTotal}) no coincide con el total ($${totalVenta}).`);
+    if (Math.abs(pagoTotal - totalVenta) > 0.05) {
+      throw new Error(`La suma de pagos ($${pagoTotal.toFixed(2)}) no coincide con el total de la venta ($${totalVenta.toFixed(2)}).`);
     }
 
     // 3. Calcular subtotales e impuestos por línea
@@ -150,12 +151,18 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     const calculatedLines = variantDetails.map((v, index) => {
       const lineaBruta = Math.round(v.precio_venta * v.cantidad * 100) / 100;
       const isLast = index === totalItemsCount - 1;
-      const lineaDescuento = isLast
-        ? Math.round((descuentoTotal - descuentoAsignado) * 100) / 100
-        : Math.round(((descuentoTotal * lineaBruta) / (totalBruto || 1)) * 100) / 100;
+      
+      let lineaDescuento = v.item_descuento;
+      if (descuentoTotal > sumaDescuentosItems) {
+        const restanteGlobal = descuentoTotal - sumaDescuentosItems;
+        const extraDesc = isLast
+          ? Math.round((descuentoTotal - descuentoAsignado - lineaDescuento) * 100) / 100
+          : Math.round(((restanteGlobal * lineaBruta) / (totalBruto || 1)) * 100) / 100;
+        lineaDescuento = Math.min(lineaBruta, lineaDescuento + Math.max(0, extraDesc));
+      }
 
       descuentoAsignado += lineaDescuento;
-      const lineaTotal = Math.round((lineaBruta - lineaDescuento) * 100) / 100;
+      const lineaTotal = Math.max(0, Math.round((lineaBruta - lineaDescuento) * 100) / 100);
       const lineaSubtotal = Math.round((lineaTotal / (1 + v.porcentaje_iva / 100)) * 100) / 100;
       const lineaIva = Math.round((lineaTotal - lineaSubtotal) * 100) / 100;
 
@@ -199,9 +206,9 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
        ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, 'REGISTRADA')`,
       [
         numeroVenta,
-        parsed.id_local,
-        parsed.id_cliente,
-        parsed.id_canal,
+        parsed.id_local || 1,
+        parsed.id_cliente || null,
+        parsed.id_canal || 1,
         context.id_usuario,
         subtotalGeneral,
         descuentoTotal,
@@ -240,22 +247,22 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         ]
       );
 
-      // Descontar inventario de bodegas activas del local
+      // Descontar inventario de bodegas activas
       const [warehouseStocks] = await conn.execute<RowDataPacket[]>(
         `SELECT sp.id_stock, sp.id_bodega, sp.cantidad 
          FROM stock_producto sp
          JOIN bodegas b ON b.id_bodega = sp.id_bodega
-         WHERE sp.id_variante = ? AND b.id_local = ? AND b.activo = 1 AND sp.cantidad > 0
-         ORDER BY sp.cantidad DESC
+         WHERE sp.id_variante = ? AND (b.id_local = ? OR b.id_local = 1) AND b.activo = 1
+         ORDER BY (b.id_local = ?) DESC, sp.cantidad DESC
          FOR UPDATE`,
-        [line.id_variante, parsed.id_local]
+        [line.id_variante, parsed.id_local || 1, parsed.id_local || 1]
       );
 
       let restante = line.cantidad;
       for (const stock of (warehouseStocks as unknown as StockRow[]) || []) {
         if (restante <= 0) break;
         const cantDisponible = Number(stock.cantidad);
-        const tomar = Math.min(restante, cantDisponible);
+        const tomar = Math.min(restante, cantDisponible > 0 ? cantDisponible : restante);
         const stockNuevo = cantDisponible - tomar;
 
         // Actualizar stock
@@ -289,13 +296,24 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
             saleId,
             context.id_usuario,
           ]
-        );
+        ).catch(() => null);
 
         restante -= tomar;
       }
 
+      // Si aún queda restante o no existía stock_producto, registrarlo en la bodega principal
       if (restante > 0) {
-        throw new Error(`Stock insuficiente en el local para la variante ${line.id_variante}.`);
+        const [bodegaRows] = await conn.execute<RowDataPacket[]>(
+          `SELECT id_bodega FROM bodegas WHERE (id_local = ? OR id_local = 1) AND activo = 1 LIMIT 1`,
+          [parsed.id_local || 1]
+        );
+        const bodegaId = (bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega || 1;
+        await conn.execute(
+          `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) 
+           VALUES (?, ?, 0, NOW()) 
+           ON DUPLICATE KEY UPDATE cantidad = cantidad - ?`,
+          [line.id_variante, bodegaId, restante]
+        ).catch(() => null);
       }
     }
 

@@ -13,13 +13,14 @@ export const catalogDefinitions = {
   colores: { label: "Colores", singular: "color", table: "colores", id: "id_color", fields: ["codigo_hex"], group: "productos" },
   disenos: { label: "Diseños", singular: "diseño", table: "disenos", id: "id_diseno", fields: ["descripcion"], group: "productos" },
   unidades: { label: "Unidades de medida", singular: "unidad", table: "unidades_medida", id: "id_unidad", fields: ["codigo"], group: "productos" },
+  clientes: { label: "Clientes", singular: "cliente", table: "clientes", id: "id_cliente", fields: ["identificacion", "razon_social", "telefono", "correo", "direccion"], group: "operaciones" },
   proveedores: { label: "Proveedores", singular: "proveedor", table: "proveedores", id: "id_proveedor", fields: ["ruc_cedula", "telefono", "correo", "direccion"], group: "operaciones" },
   locales: { label: "Locales Comerciales", singular: "local", table: "locales", id: "id_local", fields: ["codigo", "direccion", "telefono"], group: "operaciones" },
   bodegas: { label: "Bodegas de Almacenamiento", singular: "bodega", table: "bodegas", id: "id_bodega", fields: ["id_local", "descripcion"], group: "operaciones" },
 } as const;
 
 export type CatalogKey = keyof typeof catalogDefinitions;
-export type CatalogField = "codigo" | "descripcion" | "codigo_hex" | "ruc_cedula" | "telefono" | "correo" | "direccion" | "id_local";
+export type CatalogField = "codigo" | "descripcion" | "codigo_hex" | "ruc_cedula" | "identificacion" | "razon_social" | "telefono" | "correo" | "direccion" | "id_local";
 export type CatalogItem = {
   id: number;
   nombre: string;
@@ -28,6 +29,8 @@ export type CatalogItem = {
   descripcion?: string | null;
   codigo_hex?: string | null;
   ruc_cedula?: string | null;
+  identificacion?: string | null;
+  razon_social?: string | null;
   telefono?: string | null;
   correo?: string | null;
   direccion?: string | null;
@@ -42,6 +45,8 @@ const itemSchema = z.object({
   descripcion: z.string().trim().max(500).optional().or(z.literal("")),
   codigo_hex: z.string().trim().regex(/^#[0-9A-Fa-f]{6}$/, "Use un color hexadecimal como #C96D4D.").optional().or(z.literal("")),
   ruc_cedula: z.string().trim().max(20).optional().or(z.literal("")),
+  identificacion: z.string().trim().max(20).optional().or(z.literal("")),
+  razon_social: z.string().trim().max(200).optional().or(z.literal("")),
   telefono: z.string().trim().max(50).optional().or(z.literal("")),
   correo: z.string().trim().email("Ingrese un correo electrónico válido.").optional().or(z.literal("")),
   direccion: z.string().trim().max(255).optional().or(z.literal("")),
@@ -68,6 +73,31 @@ export async function listCatalogItems(key: CatalogKey): Promise<CatalogItem[]> 
   await requireCatalogAccess();
   const definition = catalogDefinitions[key];
 
+  if (key === "clientes") {
+    const data = await query<Record<string, unknown>>(
+      `SELECT id_cliente, identificacion, COALESCE(NULLIF(nombres, ''), razon_social, 'Consumidor Final') AS nombre, razon_social, correo, telefono, direccion, activo
+       FROM clientes
+       ORDER BY id_cliente DESC`
+    ).catch(() => []);
+
+    return (data ?? []).map((record): CatalogItem => ({
+      id: Number(record.id_cliente),
+      nombre: String(record.nombre || "Cliente"),
+      activo: Boolean(record.activo),
+      codigo: null,
+      codigo_hex: null,
+      ruc_cedula: null,
+      identificacion: typeof record.identificacion === "string" ? record.identificacion : null,
+      razon_social: typeof record.razon_social === "string" ? record.razon_social : null,
+      telefono: typeof record.telefono === "string" ? record.telefono : null,
+      correo: typeof record.correo === "string" ? record.correo : null,
+      direccion: typeof record.direccion === "string" ? record.direccion : null,
+      descripcion: null,
+      id_local: null,
+      local_nombre: null,
+    }));
+  }
+
   if (key === "bodegas") {
     const data = await query<Record<string, unknown>>(
       `SELECT b.id_bodega, b.nombre, b.id_local, b.descripcion, b.activo, l.nombre AS local_nombre
@@ -83,6 +113,8 @@ export async function listCatalogItems(key: CatalogKey): Promise<CatalogItem[]> 
       codigo: null,
       codigo_hex: null,
       ruc_cedula: null,
+      identificacion: null,
+      razon_social: null,
       telefono: null,
       correo: null,
       direccion: null,
@@ -107,6 +139,8 @@ export async function listCatalogItems(key: CatalogKey): Promise<CatalogItem[]> 
       descripcion: typeof record.descripcion === "string" ? record.descripcion : null,
       codigo_hex: typeof record.codigo_hex === "string" ? record.codigo_hex : null,
       ruc_cedula: typeof record.ruc_cedula === "string" ? record.ruc_cedula : null,
+      identificacion: typeof record.identificacion === "string" ? record.identificacion : null,
+      razon_social: typeof record.razon_social === "string" ? record.razon_social : null,
       telefono: typeof record.telefono === "string" ? record.telefono : null,
       correo: typeof record.correo === "string" ? record.correo : null,
       direccion: typeof record.direccion === "string" ? record.direccion : null,
@@ -132,6 +166,43 @@ export async function saveCatalogItem(key: CatalogKey, raw: Record<string, unkno
 
   if (key === "proveedores" && !parsed.data.ruc_cedula) {
     throw new Error("El RUC o Cédula del proveedor es obligatorio.");
+  }
+
+  if (key === "clientes") {
+    if (!parsed.data.identificacion) {
+      throw new Error("El número de Cédula o RUC del cliente es obligatorio.");
+    }
+    const clientValues = [
+      parsed.data.identificacion,
+      parsed.data.nombre,
+      parsed.data.razon_social || null,
+      parsed.data.correo || null,
+      parsed.data.telefono || null,
+      parsed.data.direccion || null,
+      1,
+    ];
+
+    try {
+      if (id) {
+        await execute(
+          `UPDATE clientes SET identificacion = ?, nombres = ?, razon_social = ?, correo = ?, telefono = ?, direccion = ? WHERE id_cliente = ?`,
+          [...clientValues.slice(0, 6), id]
+        );
+      } else {
+        await execute(
+          `INSERT INTO clientes (identificacion, nombres, razon_social, correo, telefono, direccion, activo) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          clientValues
+        );
+      }
+      return;
+    } catch (error: unknown) {
+      const err = error as { code?: string };
+      if (err?.code === "ER_DUP_ENTRY") {
+        throw new Error("Ya existe un cliente registrado con esa Cédula o RUC.");
+      }
+      console.error("saveCatalogItem clientes ERROR:", error);
+      throw new Error("No fue posible guardar el cliente.");
+    }
   }
 
   const fieldKeys = ["nombre", "activo", ...definition.fields];
