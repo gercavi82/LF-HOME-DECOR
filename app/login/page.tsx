@@ -20,7 +20,7 @@ export default function LoginPage() {
       <div className="grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/60 bg-lf-surface shadow-[var(--lf-shadow-lg)] lg:min-h-[42rem] lg:grid-cols-[1.08fr_0.92fr]">
         <section className="relative hidden overflow-hidden lg:block bg-stone-100">
           <Image
-            src="/logo/lf-home-decor.png"
+            src="/logo/mi-hogar-y-confort.png"
             alt="Mi Hogar y Confort - Confort y elegancia para tu hogar"
             fill
             priority
@@ -34,7 +34,7 @@ export default function LoginPage() {
           <div className="mx-auto w-full max-w-md">
             <div className="mb-6 flex justify-center lg:hidden">
               <Image
-                src="/logo/lf-home-decor.png"
+                src="/logo/mi-hogar-y-confort.png"
                 alt="Mi Hogar y Confort"
                 width={220}
                 height={120}

@@ -89,7 +89,7 @@ function Brand() {
       aria-label="Mi Hogar y Confort - Inicio"
     >
       <Image
-        src="/logo/lf-home-decor.png"
+        src="/logo/mi-hogar-y-confort.png"
         alt="Mi Hogar y Confort"
         width={360}
         height={180}
