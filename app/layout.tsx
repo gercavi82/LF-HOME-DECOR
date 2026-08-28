@@ -15,10 +15,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "L&F Home Decor",
-    template: "%s | L&F Home Decor",
+    default: "Mi Hogar y Confort",
+    template: "%s | Mi Hogar y Confort",
   },
-  description: "Sistema de gestión comercial de L&F Home Decor.",
+  description: "Sistema de gestión comercial de Mi Hogar y Confort.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
