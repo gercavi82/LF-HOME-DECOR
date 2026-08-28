@@ -18,16 +18,16 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-lf-beige px-4 py-6 sm:px-6 lg:px-8">
       <div className="grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/60 bg-lf-surface shadow-[var(--lf-shadow-lg)] lg:min-h-[42rem] lg:grid-cols-[1.08fr_0.92fr]">
-        <section className="relative hidden overflow-hidden lg:block bg-stone-100">
+        <section className="relative hidden overflow-hidden lg:block bg-stone-900">
           <Image
             src="/logo/mi-hogar-y-confort.png"
             alt="Mi Hogar y Confort - Confort y elegancia para tu hogar"
             fill
             priority
             sizes="(min-width: 1024px) 55vw, 0px"
-            className="object-contain p-6"
+            className="object-cover object-center"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-lf-navy/20 via-transparent to-white/5 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 pointer-events-none" />
         </section>
 
         <section className="flex items-center px-6 py-10 sm:px-12 sm:py-14 lg:px-14">
