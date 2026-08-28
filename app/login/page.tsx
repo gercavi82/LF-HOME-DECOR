@@ -18,7 +18,7 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-lf-beige px-4 py-6 sm:px-6 lg:px-8">
       <div className="grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/60 bg-lf-surface shadow-[var(--lf-shadow-lg)] lg:min-h-[42rem] lg:grid-cols-[1.08fr_0.92fr]">
-        <section className="relative hidden overflow-hidden lg:block bg-stone-900">
+        <section className="relative hidden overflow-hidden lg:block bg-[#ede5db]">
           <Image
             src="/logo/mi-hogar-y-confort.png"
             alt="Mi Hogar y Confort - Confort y elegancia para tu hogar"
@@ -27,20 +27,22 @@ export default function LoginPage() {
             sizes="(min-width: 1024px) 55vw, 0px"
             className="object-cover object-center"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-stone-900/20 via-transparent to-transparent pointer-events-none" />
         </section>
 
-        <section className="flex items-center px-6 py-10 sm:px-12 sm:py-14 lg:px-14">
+        <section className="flex items-center px-6 py-10 sm:px-12 sm:py-14 lg:px-14 bg-white">
           <div className="mx-auto w-full max-w-md">
             <div className="mb-6 flex justify-center lg:hidden">
-              <Image
-                src="/logo/mi-hogar-y-confort.png"
-                alt="Mi Hogar y Confort"
-                width={220}
-                height={120}
-                priority
-                className="h-24 w-auto object-contain"
-              />
+              <div className="overflow-hidden rounded-2xl bg-[#ede5db] p-2 shadow-sm border border-stone-200/60">
+                <Image
+                  src="/logo/mi-hogar-y-confort.png"
+                  alt="Mi Hogar y Confort"
+                  width={260}
+                  height={140}
+                  priority
+                  className="h-28 w-auto object-contain"
+                />
+              </div>
             </div>
 
             <header className="mb-8">
