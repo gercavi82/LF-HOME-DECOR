@@ -76,7 +76,7 @@ export async function getCommissionsSummary(month?: string): Promise<{
           NULLIF(d.costo_unitario, 0),
           NULLIF(vp.costo_unitario, 0),
           (
-            SELECT dc.precio_unitario 
+            SELECT ROUND(dc.total / dc.cantidad, 2) 
             FROM detalle_compras dc 
             JOIN compras comp ON comp.id_compra = dc.id_compra 
             WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')

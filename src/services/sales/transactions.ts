@@ -80,8 +80,8 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     for (const item of parsed.items) {
       const [rows] = await conn.execute<RowDataPacket[]>(
         `SELECT vp.id_variante, vp.precio_venta, vp.porcentaje_iva,
-                COALESCE(vp.costo_unitario, (
-                  SELECT dc.precio_unitario 
+                COALESCE(NULLIF(vp.costo_unitario, 0), (
+                  SELECT ROUND(dc.total / dc.cantidad, 2) 
                   FROM detalle_compras dc 
                   JOIN compras comp ON comp.id_compra = dc.id_compra 
                   WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')

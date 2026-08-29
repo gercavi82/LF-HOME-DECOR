@@ -251,7 +251,7 @@ export async function ensureCustomTables() {
       UPDATE \`variantes_producto\` vp
       SET vp.costo_unitario = COALESCE(
         (
-          SELECT dc.precio_unitario 
+          SELECT ROUND(dc.total / dc.cantidad, 2) 
           FROM detalle_compras dc 
           JOIN compras c ON c.id_compra = dc.id_compra 
           WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
