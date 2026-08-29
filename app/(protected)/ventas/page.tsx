@@ -97,7 +97,9 @@ export default async function SalesPage({
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Utilidad Bruta Ventas</p>
             <p className="mt-1 text-2xl font-bold text-blue-900">{currency.format(summary.totalUtilidad)}</p>
-            <p className="mt-1 text-xs text-lf-muted">Margen promedio 32.7%</p>
+            <p className="mt-1 text-xs text-lf-muted">
+              {summary.totalVentas > 0 ? ((summary.totalUtilidad / summary.totalVentas) * 100).toFixed(1) : 0}% de margen real
+            </p>
           </CardContent>
         </Card>
       </div>
