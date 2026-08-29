@@ -212,7 +212,7 @@ export function AppShell({ user, permissionCodes, alertCount = 0, children }: {
         </div>
       ) : null}
 
-      <div className="lg:col-start-2">
+      <div className="flex min-h-screen flex-col lg:col-start-2">
         <header className="sticky top-0 z-30 border-b border-lf-border/80 bg-lf-surface/90 backdrop-blur-xl">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button className="grid size-10 place-items-center rounded-xl text-lf-navy hover:bg-lf-surface-muted lg:hidden" aria-label="Abrir menú" onClick={() => setMobileOpen(true)}>
@@ -248,7 +248,12 @@ export function AppShell({ user, permissionCodes, alertCount = 0, children }: {
             </div>
           </div>
         </header>
-        <main className="min-w-0 px-3 py-5 min-[390px]:px-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="flex-1 min-w-0 px-3 py-5 min-[390px]:px-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">{children}</main>
+        <footer className="border-t border-[#E7DED1] bg-[#FFFDFC] px-6 py-4 text-center text-xs text-[#6B7280]">
+          Desarrollado por{" "}
+          <span className="font-semibold text-[#0B3764]">GeRCaVi</span>{" "}
+          © 2026
+        </footer>
       </div>
     </div>
   );

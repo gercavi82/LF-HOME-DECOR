@@ -116,6 +116,9 @@ export default function LoginPage() {
           </div>
         </section>
       </div>
+      <footer className="mt-6 text-center text-xs text-[#6B7280]">
+        Desarrollado por <span className="font-semibold text-[#0B3764]">GeRCaVi</span> © 2026
+      </footer>
     </main>
   );
 }
