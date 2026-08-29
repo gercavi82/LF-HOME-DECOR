@@ -6,15 +6,20 @@ import { SaleWorkspace } from "@/src/components/sales/sale-workspace";
 import { getSaleWorkspaceContext } from "@/src/services/sales/sales";
 
 export default async function NewSalePage() {
-  const { context, locations, products, channels, paymentMethods, customers } =
+  const { context, locations, products, channels, paymentMethods, customers, sellers } =
     await getSaleWorkspaceContext();
 
   const safeLocations = locations?.length ? locations : [{ id_local: 1, nombre: "Local Matriz" }];
   const safeChannels = channels?.length
     ? channels
     : [
-        { id_canal: 1, nombre: "Venta Local Matriz", codigo: "LOCAL" },
+        { id_canal: 1, nombre: "Local Matriz", codigo: "LOCAL" },
         { id_canal: 2, nombre: "Venta Asesor", codigo: "ASESOR" },
+        { id_canal: 3, nombre: "WhatsApp", codigo: "WHATSAPP" },
+        { id_canal: 4, nombre: "Instagram", codigo: "INSTAGRAM" },
+        { id_canal: 5, nombre: "TikTok", codigo: "TIKTOK" },
+        { id_canal: 6, nombre: "Facebook", codigo: "FACEBOOK" },
+        { id_canal: 7, nombre: "Otros", codigo: "OTROS" },
       ];
   const safePaymentMethods = paymentMethods?.length
     ? paymentMethods
@@ -22,6 +27,7 @@ export default async function NewSalePage() {
         { id_forma_pago: 1, nombre: "Efectivo", codigo: "EFECTIVO", requiere_referencia: false },
         { id_forma_pago: 2, nombre: "Transferencia", codigo: "TRANSFERENCIA", requiere_referencia: true },
         { id_forma_pago: 3, nombre: "De Una", codigo: "DE_UNA", requiere_referencia: true },
+        { id_forma_pago: 4, nombre: "Mixto", codigo: "MIXTO", requiere_referencia: false },
       ];
   const safeCustomers = customers?.length
     ? customers
@@ -50,6 +56,8 @@ export default async function NewSalePage() {
         channels={safeChannels}
         paymentMethods={safePaymentMethods}
         customers={safeCustomers}
+        sellers={sellers ?? []}
+        currentUser={context}
         defaultChannelCode={context?.perfil === "Asesor" ? "ASESOR" : "LOCAL"}
         defaultLocation={context?.id_local ?? safeLocations[0]?.id_local ?? 1}
       />

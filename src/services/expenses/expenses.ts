@@ -60,7 +60,7 @@ export async function listExpenses(filters?: {
   month?: string; // YYYY-MM
   category?: string;
 }): Promise<{ expenses: ExpenseItem[]; summary: ExpenseSummary }> {
-  await requireAnyPermission(["GASTOS_VER", "FINANZAS_VER", "DASHBOARD_VER"]).catch(() => null);
+  await requireAnyPermission(["GASTOS_VER", "FINANZAS_VER"]);
 
   let sql = `
     SELECT 

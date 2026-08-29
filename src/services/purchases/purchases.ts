@@ -75,10 +75,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
 }> {
   await requireAnyPermission([
     "COMPRA_VER",
-    "INVENTARIO_VER",
-    "PRODUCTO_VER",
-    "DASHBOARD_VER",
-    "VENTA_VER",
+    "FINANZAS_VER",
   ]);
 
   await ensureCustomTables().catch(() => null);
@@ -250,9 +247,14 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       };
     });
 
+    // 5. Total de depósitos / abonos a proveedores
+    const totalAbonosRows = await query<{ total_pagos: number }>(
+      `SELECT COALESCE(SUM(monto), 0) AS total_pagos FROM pagos_compras WHERE activo = 1`
+    ).catch(() => []);
+    const totalPagado = Number(totalAbonosRows?.[0]?.total_pagos || 0);
+
     const total = purchases.reduce((sum, p) => sum + p.total, 0);
-    const totalPagado = purchases.reduce((sum, p) => sum + p.total_pagado, 0);
-    const totalPendiente = purchases.reduce((sum, p) => sum + p.saldo_pendiente, 0);
+    const totalPendiente = Math.max(0, Number((total - totalPagado).toFixed(2)));
     const unidades = purchases.reduce((sum, p) => sum + p.unidades, 0);
     const count = purchases.length;
     const promedio = count > 0 ? Number((total / count).toFixed(2)) : 0;
@@ -281,8 +283,8 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
     SELECT 
       pc.id_pago_compra,
       pc.id_compra,
-      c.numero_compra,
-      COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor,
+      COALESCE(c.numero_compra, 'Depósito a Proveedor') AS numero_compra,
+      COALESCE(pc.proveedor, p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor,
       pc.fecha,
       pc.monto,
       pc.forma_pago,
@@ -290,7 +292,7 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
       pc.observaciones,
       CONCAT(u.nombres, ' ', u.apellidos) AS registrador
     FROM pagos_compras pc
-    JOIN compras c ON c.id_compra = pc.id_compra
+    LEFT JOIN compras c ON c.id_compra = pc.id_compra
     LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
     LEFT JOIN usuarios u ON u.id_usuario = pc.registrado_por
     WHERE pc.activo = 1
@@ -307,7 +309,7 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
   try {
     const rows = await query<{
       id_pago_compra: number;
-      id_compra: number;
+      id_compra: number | null;
       numero_compra: string;
       proveedor: string;
       fecha: Date | string;
@@ -320,8 +322,8 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
 
     return (rows ?? []).map((r) => ({
       id_pago_compra: Number(r.id_pago_compra),
-      id_compra: Number(r.id_compra),
-      numero_compra: r.numero_compra,
+      id_compra: Number(r.id_compra || 0),
+      numero_compra: r.numero_compra || "Depósito a Proveedor",
       proveedor: r.proveedor,
       fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
       monto: Number(r.monto) || 0,
@@ -645,11 +647,15 @@ export async function registerPurchasePayment(input: PurchasePaymentInput) {
 
   await ensureCustomTables().catch(() => null);
 
+  const purchaseId = parsed.id_compra && Number(parsed.id_compra) > 0 ? Number(parsed.id_compra) : null;
+  const proveedorNombre = parsed.proveedor?.trim() || "Distribuidora Nacional de Blancos & Edredones";
+
   return execute(
-    `INSERT INTO pagos_compras (id_compra, fecha, monto, forma_pago, referencia, observaciones, registrado_por, activo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT INTO pagos_compras (id_compra, proveedor, fecha, monto, forma_pago, referencia, observaciones, registrado_por, activo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     [
-      parsed.id_compra,
+      purchaseId,
+      proveedorNombre,
       parsed.fecha,
       parsed.monto,
       parsed.forma_pago,

@@ -39,7 +39,8 @@ export function PurchasePaymentModal({
   } = useForm<PurchasePaymentInput>({
     resolver: zodResolver(purchasePaymentSchema) as never,
     defaultValues: {
-      id_compra: defaultPurchaseId || (purchases[0]?.id_compra ?? 1),
+      id_compra: defaultPurchaseId || null,
+      proveedor: purchases[0]?.proveedor || "Distribuidora Nacional de Blancos & Edredones",
       fecha: today,
       monto: 0,
       forma_pago: "Transferencia",
@@ -74,7 +75,7 @@ export function PurchasePaymentModal({
     });
   });
 
-  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "+ Registrar abono");
+  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "+ Registrar depósito / abono");
 
   return (
     <>
@@ -91,7 +92,7 @@ export function PurchasePaymentModal({
       </button>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in">
           <div className="w-full max-w-lg rounded-2xl border bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b pb-4">
               <div className="flex items-center gap-2">
@@ -99,8 +100,8 @@ export function PurchasePaymentModal({
                   <DollarSign size={18} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-lf-navy">Registrar Abono a Compra / Proveedor</h3>
-                  <p className="text-xs text-lf-muted">El abono se restará del saldo pendiente de la compra por pagar.</p>
+                  <h3 className="font-bold text-lf-navy">Registrar Depósito / Abono a Proveedor</h3>
+                  <p className="text-xs text-lf-muted">Se descontará directamente del saldo total pendiente con proveedores.</p>
                 </div>
               </div>
               <button
@@ -115,24 +116,36 @@ export function PurchasePaymentModal({
             <form onSubmit={submit} className="mt-5 space-y-4" noValidate>
               {state.error ? <Alert variant="danger">{state.error}</Alert> : null}
 
-              {/* Compra */}
+              {/* Proveedor */}
               <label className="block space-y-1.5 text-sm font-medium">
-                <span>Compra / Factura de Proveedor</span>
-                <select
-                  {...register("id_compra")}
+                <span>Proveedor</span>
+                <input
+                  {...register("proveedor")}
+                  placeholder="Distribuidora Nacional de Blancos & Edredones"
+                  defaultValue="Distribuidora Nacional de Blancos & Edredones"
                   disabled={pending}
-                  className="h-11 w-full rounded-xl border bg-white px-3 outline-none focus:border-lf-terracotta"
-                >
-                  {purchases.map((c) => (
-                    <option key={c.id_compra} value={c.id_compra}>
-                      {c.numero_compra} - {c.proveedor} (Saldo pendiente: ${c.saldo_pendiente.toFixed(2)})
-                    </option>
-                  ))}
-                </select>
-                {errors.id_compra?.message ? (
-                  <span className="block text-xs text-lf-danger">{errors.id_compra.message}</span>
-                ) : null}
+                  className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+                />
               </label>
+
+              {/* Compra específica (opcional) */}
+              {purchases.length > 0 ? (
+                <label className="block space-y-1.5 text-sm font-medium">
+                  <span>Factura / Pedido asociado (Opcional)</span>
+                  <select
+                    {...register("id_compra")}
+                    disabled={pending}
+                    className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+                  >
+                    <option value="">Depósito General a Proveedor (Sin vincular a factura específica)</option>
+                    {purchases.map((c) => (
+                      <option key={c.id_compra} value={c.id_compra}>
+                        {c.numero_compra} - {c.proveedor}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 {/* Fecha */}

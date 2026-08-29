@@ -1,10 +1,11 @@
 import "server-only";
 
 import { z } from "zod";
-import { query, queryOne } from "@/src/lib/db/mysql";
+import { query, queryOne, execute } from "@/src/lib/db/mysql";
 import {
   type AuthContext,
   requirePermission,
+  requireAnyPermission,
   ROLE_NAMES,
 } from "@/src/services/auth/authorization";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
@@ -694,7 +695,7 @@ export async function getSaleWorkspaceContext() {
   locationsSql += ` ORDER BY nombre ASC`;
 
   try {
-    const [locations, variants, products, warehouses, stocks, channels, paymentMethods, customers] =
+    const [locations, variants, products, warehouses, stocks, channels, paymentMethods, customers, sellers] =
       await Promise.all([
         query<{ id_local: number; nombre: string }>(locationsSql, locationsParams).catch(() => []),
         query<{
@@ -742,6 +743,13 @@ export async function getSaleWorkspaceContext() {
           razon_social: string | null;
         }>(
           `SELECT id_cliente, identificacion, nombres, apellidos, razon_social FROM clientes WHERE activo = 1 ORDER BY nombres ASC LIMIT 100`
+        ).catch(() => []),
+        query<{ id_usuario: number; nombres: string; apellidos: string; perfil: string }>(
+          `SELECT u.id_usuario, u.nombres, u.apellidos, COALESCE(p.nombre, 'Usuario') AS perfil 
+           FROM usuarios u 
+           LEFT JOIN perfiles p ON p.id_perfil = u.id_perfil 
+           WHERE u.activo = 1 
+           ORDER BY u.nombres ASC`
         ).catch(() => []),
       ]);
 
@@ -816,6 +824,12 @@ export async function getSaleWorkspaceContext() {
       };
     });
 
+    const mappedSellers = (sellers ?? []).map((u) => ({
+      id_usuario: Number(u.id_usuario),
+      nombre: `${u.nombres} ${u.apellidos}`.trim(),
+      perfil: u.perfil,
+    }));
+
     return {
       locations: mappedLocations,
       variants: mappedVariants,
@@ -825,6 +839,7 @@ export async function getSaleWorkspaceContext() {
       channels: mappedChannels,
       paymentMethods: mappedPaymentMethods,
       customers: mappedCustomers,
+      sellers: mappedSellers,
       context,
     };
   } catch (error) {
@@ -835,10 +850,73 @@ export async function getSaleWorkspaceContext() {
       products: [],
       warehouses: [{ id_bodega: 1, id_local: 1, nombre: "Bodega Principal" }],
       stocks: [],
-      channels: [{ id_canal: 1, nombre: "Venta Local", codigo: "LOCAL" }, { id_canal: 2, nombre: "Venta Asesor", codigo: "ASESOR" }],
+      channels: [
+        { id_canal: 1, nombre: "Local Matriz", codigo: "LOCAL" },
+        { id_canal: 2, nombre: "Venta Asesor", codigo: "ASESOR" },
+        { id_canal: 3, nombre: "WhatsApp", codigo: "WHATSAPP" },
+        { id_canal: 4, nombre: "Instagram", codigo: "INSTAGRAM" },
+        { id_canal: 5, nombre: "TikTok", codigo: "TIKTOK" },
+        { id_canal: 6, nombre: "Facebook", codigo: "FACEBOOK" },
+        { id_canal: 7, nombre: "Otros", codigo: "OTROS" },
+      ],
       paymentMethods: [{ id_forma_pago: 1, nombre: "Efectivo", codigo: "EFECTIVO", requiere_referencia: false }],
       customers: [{ id_cliente: 1, identificacion: "9999999999999", nombre: "Consumidor Final", name: "Consumidor Final" }],
+      sellers: [],
       context,
     };
   }
 }
+
+export async function createQuickCustomer(data: {
+  identificacion: string;
+  nombres: string;
+  apellidos?: string;
+  telefono?: string;
+  correo?: string;
+  direccion?: string;
+}): Promise<{ id_cliente: number; nombre: string; identificacion: string }> {
+  await requireAnyPermission(["VENTA_CREAR", "VENTA_VER", "USUARIO_VER"]);
+
+  const cleanIdentificacion = data.identificacion.trim();
+  const cleanNombres = data.nombres.trim();
+  const cleanApellidos = data.apellidos?.trim() || "";
+  const razonSocial = cleanApellidos ? `${cleanNombres} ${cleanApellidos}` : cleanNombres;
+
+  const result = await execute(
+    `INSERT INTO clientes (identificacion, nombres, apellidos, razon_social, correo, telefono, direccion, activo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE 
+       nombres = VALUES(nombres),
+       apellidos = VALUES(apellidos),
+       razon_social = VALUES(razon_social),
+       correo = VALUES(correo),
+       telefono = VALUES(telefono),
+       direccion = VALUES(direccion),
+       activo = 1`,
+    [
+      cleanIdentificacion,
+      cleanNombres,
+      cleanApellidos,
+      razonSocial,
+      data.correo?.trim() || null,
+      data.telefono?.trim() || null,
+      data.direccion?.trim() || null,
+    ]
+  );
+
+  let clienteId = Number(result.insertId);
+  if (!clienteId || clienteId === 0) {
+    const existing = await queryOne<{ id_cliente: number }>(
+      `SELECT id_cliente FROM clientes WHERE identificacion = ? LIMIT 1`,
+      [cleanIdentificacion]
+    );
+    clienteId = existing?.id_cliente || 1;
+  }
+
+  return {
+    id_cliente: clienteId,
+    identificacion: cleanIdentificacion,
+    nombre: razonSocial,
+  };
+}
+

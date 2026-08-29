@@ -41,7 +41,7 @@ export async function ensureCustomTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // Asegurar Canales de Venta
+    // Asegurar Canales de Venta (Local, Asesor, WhatsApp, Instagram, TikTok, Facebook, Otros)
     await execute(`
       CREATE TABLE IF NOT EXISTS \`canales_venta\` (
         \`id_canal\` INT AUTO_INCREMENT PRIMARY KEY,
@@ -52,9 +52,14 @@ export async function ensureCustomTables() {
     `);
     await execute(`
       INSERT INTO \`canales_venta\` (\`id_canal\`, \`nombre\`, \`codigo\`, \`activo\`) VALUES
-      (1, 'Venta Local Matriz', 'LOCAL', 1),
-      (2, 'Venta por Asesor', 'ASESOR', 1)
-      ON DUPLICATE KEY UPDATE \`activo\` = 1;
+      (1, 'Local Matriz', 'LOCAL', 1),
+      (2, 'Venta por Asesor', 'ASESOR', 1),
+      (3, 'WhatsApp', 'WHATSAPP', 1),
+      (4, 'Instagram', 'INSTAGRAM', 1),
+      (5, 'TikTok', 'TIKTOK', 1),
+      (6, 'Facebook', 'FACEBOOK', 1),
+      (7, 'Otros Canales', 'OTROS', 1)
+      ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`codigo\` = VALUES(\`codigo\`), \`activo\` = 1;
     `).catch(() => null);
 
     // Asegurar Formas de Pago
@@ -78,10 +83,9 @@ export async function ensureCustomTables() {
       ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`codigo\` = VALUES(\`codigo\`), \`requiere_referencia\` = VALUES(\`requiere_referencia\`), \`activo\` = 1;
     `).catch(() => null);
 
-    // Eliminar / desactivar usuario Iralda Manoslavas / Manosalvas si existe
-    await execute(`DELETE FROM \`sesiones_usuario\` WHERE \`id_usuario\` IN (SELECT \`id_usuario\` FROM \`usuarios\` WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%')`).catch(() => null);
-    await execute(`DELETE FROM \`usuarios\` WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%'`).catch(() => null);
-    await execute(`UPDATE \`usuarios\` SET \`activo\` = 0 WHERE \`cedula\` = '1712345673' OR \`nombres\` LIKE '%Iralda%' OR \`apellidos\` LIKE '%Manos%'`).catch(() => null);
+    // Ajustar pagos_compras para soportar pagos/depósitos directos y sin forzar id_compra
+    await execute(`ALTER TABLE \`pagos_compras\` MODIFY \`id_compra\` BIGINT NULL;`).catch(() => null);
+    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN IF NOT EXISTS \`proveedor\` VARCHAR(200) NULL;`).catch(() => null);
 
     // Asegurar Cliente Consumidor Final
     await execute(`
@@ -133,6 +137,104 @@ export async function ensureCustomTables() {
       INSERT INTO \`bodegas\` (\`id_bodega\`, \`nombre\`, \`id_local\`, \`activo\`) VALUES
       (1, 'Bodega Principal Matriz', 1, 1)
       ON DUPLICATE KEY UPDATE \`activo\` = 1;
+    `).catch(() => null);
+
+    // Asegurar Perfiles del Sistema (Administrador, Supervisor, Asesor)
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`perfiles\` (
+        \`id_perfil\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`codigo\` VARCHAR(50) NOT NULL UNIQUE,
+        \`nombre\` VARCHAR(100) NOT NULL,
+        \`descripcion\` VARCHAR(255) NULL,
+        \`activo\` TINYINT(1) NOT NULL DEFAULT 1
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await execute(`
+      INSERT INTO \`perfiles\` (\`id_perfil\`, \`codigo\`, \`nombre\`, \`descripcion\`, \`activo\`) VALUES
+      (1, 'ADMINISTRADOR', 'Administrador', 'Acceso total y configuración del sistema', 1),
+      (2, 'SUPERVISOR', 'Supervisor', 'Supervisión operativa, control de inventario, compras y gastos', 1),
+      (3, 'ASESOR', 'Asesor', 'Consulta de productos, inventario, reportes y registro de ventas', 1)
+      ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
+    `).catch(() => null);
+
+    // Asegurar Permisos
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`permisos\` (
+        \`id_permiso\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`codigo\` VARCHAR(50) NOT NULL UNIQUE,
+        \`nombre\` VARCHAR(100) NOT NULL,
+        \`descripcion\` VARCHAR(255) NULL,
+        \`activo\` TINYINT(1) NOT NULL DEFAULT 1
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await execute(`
+      INSERT INTO \`permisos\` (\`codigo\`, \`nombre\`, \`descripcion\`, \`activo\`) VALUES
+      ('DASHBOARD_VER', 'Ver Dashboard', 'Permite visualizar estadísticas e indicadores generales', 1),
+      ('PRODUCTO_VER', 'Ver Productos', 'Permite consultar el catálogo y fichas de productos', 1),
+      ('PRODUCTO_CREAR', 'Crear Productos', 'Permite registrar nuevos productos y variantes', 1),
+      ('PRODUCTO_EDITAR', 'Editar Productos', 'Permite modificar datos de productos existentes', 1),
+      ('PRODUCTO_PRECIO', 'Modificar Precios', 'Permite cambiar precios de venta de variantes', 1),
+      ('INVENTARIO_VER', 'Ver Inventario', 'Permite consultar existencias consolidadas por bodega', 1),
+      ('INVENTARIO_AJUSTAR', 'Ajustar Inventario', 'Permite realizar ajustes manuales de stock', 1),
+      ('VENTA_VER', 'Ver Ventas', 'Permite consultar historial y comprobantes de ventas', 1),
+      ('VENTA_CREAR', 'Registrar Ventas', 'Permite procesar nuevas ventas en el punto de venta', 1),
+      ('VENTA_ANULAR', 'Anular Ventas', 'Permite anular ventas emitidas y revertir stock', 1),
+      ('COMPRA_VER', 'Ver Compras', 'Permite consultar compras y registrar abonos a proveedores', 1),
+      ('COMPRA_CREAR', 'Crear Compras', 'Permite registrar nuevas compras a proveedores', 1),
+      ('COMPRA_EDITAR', 'Editar Compras', 'Permite editar compras existentes', 1),
+      ('GASTOS_VER', 'Ver Gastos', 'Permite consultar gastos del negocio', 1),
+      ('GASTOS_CREAR', 'Registrar Gastos', 'Permite registrar nuevos gastos', 1),
+      ('FINANZAS_VER', 'Ver Finanzas', 'Permite consultar reportes financieros', 1),
+      ('REPORTES_VER', 'Ver Reportes', 'Permite consultar reportes comerciales', 1),
+      ('COMISIONES_VER', 'Ver Comisiones', 'Permite consultar comisiones de asesores', 1),
+      ('USUARIO_VER', 'Ver Usuarios', 'Permite consultar lista de usuarios', 1),
+      ('USUARIO_CREAR', 'Crear Usuarios', 'Permite crear nuevos usuarios', 1),
+      ('USUARIO_EDITAR', 'Editar Usuarios', 'Permite modificar usuarios', 1),
+      ('CONFIGURACION_VER', 'Ver Configuración', 'Permite consultar y modificar catálogos', 1)
+      ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
+    `).catch(() => null);
+
+    // Asegurar Asignaciones perfil_permisos
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`perfil_permisos\` (
+        \`id_perfil\` INT NOT NULL,
+        \`id_permiso\` INT NOT NULL,
+        PRIMARY KEY (\`id_perfil\`, \`id_permiso\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Administrador (todos)
+    await execute(`
+      INSERT IGNORE INTO \`perfil_permisos\` (\`id_perfil\`, \`id_permiso\`)
+      SELECT p.id_perfil, perm.id_permiso
+      FROM perfiles p
+      CROSS JOIN permisos perm
+      WHERE p.codigo = 'ADMINISTRADOR' AND perm.activo = 1;
+    `).catch(() => null);
+
+    // Supervisor
+    await execute(`
+      INSERT IGNORE INTO \`perfil_permisos\` (\`id_perfil\`, \`id_permiso\`)
+      SELECT p.id_perfil, perm.id_permiso
+      FROM perfiles p
+      JOIN permisos perm ON perm.codigo IN (
+        'DASHBOARD_VER', 'PRODUCTO_VER', 'PRODUCTO_CREAR', 'PRODUCTO_EDITAR', 'PRODUCTO_PRECIO',
+        'INVENTARIO_VER', 'INVENTARIO_AJUSTAR', 'VENTA_VER', 'VENTA_CREAR', 'VENTA_ANULAR',
+        'COMPRA_VER', 'COMPRA_CREAR', 'COMPRA_EDITAR', 'GASTOS_VER', 'GASTOS_CREAR',
+        'REPORTES_VER', 'FINANZAS_VER', 'COMISIONES_VER'
+      )
+      WHERE p.codigo = 'SUPERVISOR' AND perm.activo = 1;
+    `).catch(() => null);
+
+    // Asesor
+    await execute(`
+      INSERT IGNORE INTO \`perfil_permisos\` (\`id_perfil\`, \`id_permiso\`)
+      SELECT p.id_perfil, perm.id_permiso
+      FROM perfiles p
+      JOIN permisos perm ON perm.codigo IN (
+        'DASHBOARD_VER', 'PRODUCTO_VER', 'INVENTARIO_VER', 'VENTA_VER', 'VENTA_CREAR', 'REPORTES_VER'
+      )
+      WHERE p.codigo = 'ASESOR' AND perm.activo = 1;
     `).catch(() => null);
 
     tablesEnsured = true;

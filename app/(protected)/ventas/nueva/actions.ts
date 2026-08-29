@@ -16,8 +16,36 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
   const parsed = saleTransactionSchema.safeParse(payload);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Revise los datos de la venta." };
   let sale: Awaited<ReturnType<typeof createSaleTransaction>>;
-  try { sale = await createSaleTransaction(parsed.data); }
-  catch (error) { const result = publicError(error, "No fue posible registrar la venta."); return { error: result.message, code: result.code }; }
-  revalidatePath("/ventas"); revalidatePath("/dashboard"); revalidatePath("/inventario"); revalidatePath("/inventario/movimientos");
+  try {
+    sale = await createSaleTransaction(parsed.data);
+  } catch (error) {
+    const result = publicError(error, "No fue posible registrar la venta.");
+    return { error: result.message, code: result.code };
+  }
+
+  revalidatePath("/ventas");
+  revalidatePath("/dashboard");
+  revalidatePath("/inventario");
+  revalidatePath("/inventario/movimientos");
   redirect(`/ventas/${sale.id}/comprobante?created=1`);
 }
+
+export async function createQuickCustomerAction(data: {
+  identificacion: string;
+  nombres: string;
+  apellidos?: string;
+  telefono?: string;
+  correo?: string;
+  direccion?: string;
+}) {
+  try {
+    const { createQuickCustomer } = await import("@/src/services/sales/sales");
+    const customer = await createQuickCustomer(data);
+    revalidatePath("/ventas/nueva");
+    return { success: true, customer };
+  } catch (error) {
+    const result = publicError(error, "No fue posible registrar el cliente.");
+    return { success: false, error: result.message };
+  }
+}
+

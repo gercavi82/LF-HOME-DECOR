@@ -1,11 +1,27 @@
 "use client";
 
-import { Clock3, CreditCard, Minus, Plus, Search, ShoppingCart, Tag, Trash2, X } from "lucide-react";
-import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Calendar,
+  Clock3,
+  CreditCard,
+  Minus,
+  Plus,
+  Search,
+  ShoppingCart,
+  Tag,
+  Trash2,
+  UserCheck,
+  UserPlus,
+  Users,
+  X,
+  Save,
+  CheckCircle2,
+} from "lucide-react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Gs1Scanner } from "@/src/components/products/gs1-scanner";
-import { Alert, Badge } from "@/src/components/ui";
-import { createSaleAction, type SaleActionState } from "@/app/(protected)/ventas/nueva/actions";
+import { Alert, Badge, Button, Input, Spinner } from "@/src/components/ui";
+import { createSaleAction, createQuickCustomerAction, type SaleActionState } from "@/app/(protected)/ventas/nueva/actions";
 import { calculateIncludedTax } from "@/src/lib/tax";
 import type { SaleChannel, SaleCustomer, SalePaymentMethod, SaleProduct } from "@/src/services/sales/sales";
 
@@ -62,6 +78,8 @@ export function SaleWorkspace({
   channels = [],
   paymentMethods = [],
   customers = [],
+  sellers = [],
+  currentUser,
   defaultLocation,
   defaultChannelCode,
 }: {
@@ -70,6 +88,8 @@ export function SaleWorkspace({
   channels: SaleChannel[];
   paymentMethods: SalePaymentMethod[];
   customers: SaleCustomer[];
+  sellers?: Array<{ id_usuario: number; nombre: string; perfil: string }>;
+  currentUser?: { id_usuario: number; perfil: string; nombres: string; apellidos: string } | null;
   defaultLocation: number | null;
   defaultChannelCode: string;
 }) {
@@ -79,6 +99,26 @@ export function SaleWorkspace({
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
+  
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [saleDate, setSaleDate] = useState(todayStr);
+
+  const [sellerId, setSellerId] = useState<number>(
+    currentUser?.id_usuario || sellers[0]?.id_usuario || 1
+  );
+
+  const [customerList, setCustomerList] = useState<SaleCustomer[]>(customers);
+  const [customerId, setCustomerId] = useState<number>(0);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [newCustIdent, setNewCustIdent] = useState("");
+  const [newCustNombres, setNewCustNombres] = useState("");
+  const [newCustApellidos, setNewCustApellidos] = useState("");
+  const [newCustTelefono, setNewCustTelefono] = useState("");
+  const [newCustCorreo, setNewCustCorreo] = useState("");
+  const [newCustDireccion, setNewCustDireccion] = useState("");
+  const [customerPending, startCustomerTransition] = useTransition();
+  const [customerModalError, setCustomerModalError] = useState<string>();
+
   const [channelId, setChannelId] = useState(
     channels.find((channel) => channel.codigo === defaultChannelCode)?.id_canal ?? channels[0]?.id_canal ?? 1
   );
@@ -86,7 +126,6 @@ export function SaleWorkspace({
     paymentMethods.find((method) => method.codigo === "EFECTIVO")?.id_forma_pago ?? paymentMethods[0]?.id_forma_pago ?? 1
   );
   const [paymentReference, setPaymentReference] = useState("");
-  const [customerId, setCustomerId] = useState(0);
   const [observations, setObservations] = useState("");
   const simplePaymentMethods = paymentMethods.filter((method) => method.codigo !== "MIXTO");
   const [paymentParts, setPaymentParts] = useState<PaymentPart[]>(() => [
@@ -95,6 +134,7 @@ export function SaleWorkspace({
   ]);
   const [message, setMessage] = useState<string>();
   const searchRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     searchRef.current?.focus();
     const started = Date.now();
@@ -162,6 +202,8 @@ export function SaleWorkspace({
     id_local: locationId || 1,
     id_cliente: customerId || null,
     id_canal: channelId || 1,
+    id_usuario_asesor: sellerId || null,
+    fecha: saleDate || null,
     descuento: totals.discount,
     observaciones: observations,
     items: cart.map((item) => ({
@@ -171,6 +213,46 @@ export function SaleWorkspace({
     })),
     pagos: paymentPayload,
   });
+
+  const handleCreateCustomer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustIdent.trim() || !newCustNombres.trim()) {
+      setCustomerModalError("La identificación y el nombre son obligatorios.");
+      return;
+    }
+    setCustomerModalError(undefined);
+
+    startCustomerTransition(async () => {
+      const res = await createQuickCustomerAction({
+        identificacion: newCustIdent.trim(),
+        nombres: newCustNombres.trim(),
+        apellidos: newCustApellidos.trim(),
+        telefono: newCustTelefono.trim(),
+        correo: newCustCorreo.trim(),
+        direccion: newCustDireccion.trim(),
+      });
+
+      if (res.success && res.customer) {
+        const newCust: SaleCustomer = {
+          id_cliente: res.customer.id_cliente,
+          identificacion: res.customer.identificacion,
+          nombre: res.customer.nombre,
+          name: res.customer.nombre,
+        };
+        setCustomerList((prev) => [newCust, ...prev]);
+        setCustomerId(newCust.id_cliente);
+        setShowCustomerModal(false);
+        setNewCustIdent("");
+        setNewCustNombres("");
+        setNewCustApellidos("");
+        setNewCustTelefono("");
+        setNewCustCorreo("");
+        setNewCustDireccion("");
+      } else {
+        setCustomerModalError(res.error || "No se pudo registrar el cliente.");
+      }
+    });
+  };
 
   const addProduct = useCallback(
     (product: SaleProduct) => {
@@ -414,12 +496,27 @@ export function SaleWorkspace({
             <Clock3 size={15} /> {elapsed}s
           </span>
         </div>
-        <label className="mt-5 block">
-          <span className="mb-1.5 block text-sm font-medium">Local</span>
+        {/* Fecha de Venta */}
+        <label className="mt-4 block">
+          <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-lf-muted">
+            <Calendar size={14} className="text-lf-terracotta" /> Fecha de venta
+          </span>
+          <input
+            type="date"
+            value={saleDate}
+            onChange={(e) => setSaleDate(e.target.value)}
+            max={todayStr}
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none focus:border-lf-terracotta shadow-2xs"
+          />
+        </label>
+
+        {/* Local */}
+        <label className="mt-3 block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-lf-muted">Local</span>
           <select
             value={locationId || ""}
             onChange={(event) => changeLocation(Number(event.target.value))}
-            className="h-11 w-full rounded-xl border bg-white px-3"
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta shadow-2xs"
           >
             <option value="" disabled>
               Seleccionar
@@ -431,34 +528,64 @@ export function SaleWorkspace({
             ))}
           </select>
         </label>
-        <label className="mt-4 block">
-          <span className="mb-1.5 block text-sm font-medium">Cliente</span>
+
+        {/* Asesor / Vendedor Responsable */}
+        <label className="mt-3 block">
+          <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-lf-muted">
+            <UserCheck size={14} className="text-lf-navy" /> Asesor / Vendedor
+          </span>
           <select
-            value={customerId}
-            onChange={(event) => setCustomerId(Number(event.target.value))}
-            className="h-11 w-full rounded-xl border bg-white px-3"
+            value={sellerId}
+            onChange={(event) => setSellerId(Number(event.target.value))}
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none focus:border-lf-terracotta shadow-2xs"
           >
-            <option value={0}>Consumidor final</option>
-            {customers.map((customer) => (
-              <option key={customer.id_cliente} value={customer.id_cliente}>
-                {customer.nombre}
-                {customer.identificacion ? ` · ${customer.identificacion}` : ""}
+            {sellers.map((s) => (
+              <option key={s.id_usuario} value={s.id_usuario}>
+                {s.nombre} ({s.perfil})
               </option>
             ))}
           </select>
         </label>
+
+        {/* Cliente con botón para crear nuevo */}
+        <div className="mt-3 block">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Cliente</span>
+            <button
+              type="button"
+              onClick={() => setShowCustomerModal(true)}
+              className="inline-flex items-center gap-1 rounded-lg bg-lf-terracotta/10 px-2 py-0.5 text-xs font-bold text-lf-terracotta hover:bg-lf-terracotta/20 transition"
+            >
+              <UserPlus size={12} /> + Nuevo cliente
+            </button>
+          </div>
+          <select
+            value={customerId}
+            onChange={(event) => setCustomerId(Number(event.target.value))}
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta shadow-2xs"
+          >
+            <option value={0}>Consumidor final (9999999999999)</option>
+            {customerList.map((customer) => (
+              <option key={customer.id_cliente} value={customer.id_cliente}>
+                {customer.nombre} {customer.identificacion ? ` · ${customer.identificacion}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Canales de Venta */}
         <fieldset className="mt-4">
-          <legend className="mb-2 text-sm font-medium">Canal de venta</legend>
-          <div className="grid grid-cols-2 gap-2">
+          <legend className="mb-2 text-xs font-semibold uppercase tracking-wider text-lf-muted">Canal de venta</legend>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 xl:grid-cols-2">
             {channels.map((channel) => (
               <button
                 key={channel.id_canal}
                 type="button"
                 onClick={() => setChannelId(channel.id_canal)}
                 aria-pressed={channelId === channel.id_canal}
-                className={`min-h-10 rounded-xl border px-2 text-xs font-semibold transition ${
+                className={`min-h-9 rounded-xl border px-2 text-xs font-semibold transition ${
                   channelId === channel.id_canal
-                    ? "border-lf-terracotta bg-lf-terracotta text-white"
+                    ? "border-lf-terracotta bg-lf-terracotta text-white shadow-sm"
                     : "bg-white hover:bg-lf-surface-muted"
                 }`}
               >
@@ -660,7 +787,7 @@ export function SaleWorkspace({
         <button
           type="submit"
           disabled={pending || !cart.length || totals.total <= 0 || !channelId || !paymentValid}
-          className="mt-5 h-12 w-full rounded-xl bg-lf-terracotta font-semibold text-white hover:bg-lf-terracotta-hover disabled:opacity-50"
+          className="mt-5 h-12 w-full rounded-xl bg-lf-terracotta font-semibold text-white hover:bg-lf-terracotta-hover disabled:opacity-50 transition shadow-sm"
         >
           {pending ? "Confirmando..." : "Confirmar venta"}
         </button>
@@ -668,6 +795,124 @@ export function SaleWorkspace({
           La venta se registra completa o se revierte automáticamente.
         </p>
       </aside>
+
+      {/* Modal de Registro Rápido de Nuevo Cliente */}
+      {showCustomerModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="grid size-9 place-items-center rounded-xl bg-lf-terracotta/10 text-lf-terracotta">
+                  <UserPlus size={18} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lf-navy">Registrar Nuevo Cliente</h3>
+                  <p className="text-xs text-lf-muted">Datos para facturación y contacto.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCustomerModal(false);
+                  setCustomerModalError(undefined);
+                }}
+                className="rounded-lg p-1 text-lf-muted hover:bg-lf-surface-muted hover:text-lf-navy"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {customerModalError ? <Alert variant="danger">{customerModalError}</Alert> : null}
+
+              <div>
+                <span className="mb-1 block text-xs font-semibold text-slate-700">Cédula o RUC *</span>
+                <input
+                  value={newCustIdent}
+                  onChange={(e) => setNewCustIdent(e.target.value)}
+                  placeholder="Ej: 1712345678"
+                  maxLength={13}
+                  className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="mb-1 block text-xs font-semibold text-slate-700">Nombres *</span>
+                  <input
+                    value={newCustNombres}
+                    onChange={(e) => setNewCustNombres(e.target.value)}
+                    placeholder="Ej: Juan"
+                    className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                  />
+                </div>
+                <div>
+                  <span className="mb-1 block text-xs font-semibold text-slate-700">Apellidos</span>
+                  <input
+                    value={newCustApellidos}
+                    onChange={(e) => setNewCustApellidos(e.target.value)}
+                    placeholder="Ej: Pérez"
+                    className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="mb-1 block text-xs font-semibold text-slate-700">Teléfono</span>
+                  <input
+                    value={newCustTelefono}
+                    onChange={(e) => setNewCustTelefono(e.target.value)}
+                    placeholder="Ej: 0991234567"
+                    className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                  />
+                </div>
+                <div>
+                  <span className="mb-1 block text-xs font-semibold text-slate-700">Correo</span>
+                  <input
+                    type="email"
+                    value={newCustCorreo}
+                    onChange={(e) => setNewCustCorreo(e.target.value)}
+                    placeholder="cliente@email.com"
+                    className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <span className="mb-1 block text-xs font-semibold text-slate-700">Dirección</span>
+                <input
+                  value={newCustDireccion}
+                  onChange={(e) => setNewCustDireccion(e.target.value)}
+                  placeholder="Ej: Av. Principal y Secundaria"
+                  className="h-10 w-full rounded-xl border px-3 text-sm outline-none focus:border-lf-terracotta"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCustomerModal(false);
+                    setCustomerModalError(undefined);
+                  }}
+                  className="h-10 rounded-xl border px-4 text-sm font-medium hover:bg-lf-surface-muted"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateCustomer}
+                  disabled={customerPending}
+                  className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-lf-terracotta px-4 text-sm font-semibold text-white hover:bg-lf-terracotta-hover transition disabled:opacity-50"
+                >
+                  {customerPending ? "Guardando..." : <><Save size={15} /> Guardar cliente</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }

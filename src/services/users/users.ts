@@ -38,9 +38,12 @@ function normalizeSearch(search: string) {
 }
 
 export async function getUserCatalogs(): Promise<UserCatalogs> {
+  const { ensureCustomTables } = await import("@/src/lib/db/ensure-tables");
+  await ensureCustomTables().catch(() => null);
+
   const [profiles, locations] = await Promise.all([
     query<{ id_perfil: number; nombre: string }>(
-      `SELECT id_perfil, nombre FROM perfiles WHERE activo = 1 ORDER BY nombre ASC`
+      `SELECT id_perfil, nombre FROM perfiles WHERE activo = 1 ORDER BY id_perfil ASC`
     ),
     query<{ id_local: number; nombre: string }>(
       `SELECT id_local, nombre FROM locales WHERE activo = 1 ORDER BY nombre ASC`

@@ -98,9 +98,9 @@ export default async function PurchasesPage({
 
         <Card className="border-l-4 border-l-emerald-600 bg-emerald-50/20">
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Total Pagado / Abonos</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Total Depósitos / Abonos</p>
             <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(summary.totalPagado)}</p>
-            <p className="mt-1 text-xs text-emerald-600">Abonos aplicados a compras</p>
+            <p className="mt-1 text-xs text-emerald-600">Abonos y pagos a proveedores</p>
           </CardContent>
         </Card>
 
@@ -210,7 +210,7 @@ export default async function PurchasesPage({
         </div>
       </form>
 
-      {/* Tabla de Compras con Abonos y Saldos */}
+      {/* Tabla de Compras */}
       {purchases.length ? (
         <>
           <TableContainer className="mb-8">
@@ -225,9 +225,6 @@ export default async function PurchasesPage({
                   <TableHead className="text-right">Subtotal</TableHead>
                   <TableHead className="text-right">IVA</TableHead>
                   <TableHead className="text-right">Total Compra</TableHead>
-                  <TableHead className="text-right text-emerald-700">Total Pagado / Abonos</TableHead>
-                  <TableHead className="text-right text-amber-700">Saldo Pendiente</TableHead>
-                  <TableHead className="text-center">Estado</TableHead>
                   <TableHead className="text-center">Acción</TableHead>
                 </tr>
               </thead>
@@ -271,46 +268,26 @@ export default async function PurchasesPage({
                     <TableCell className="text-right font-bold text-lf-navy font-mono">
                       {currency.format(compra.total)}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700 font-mono">
-                      {currency.format(compra.total_pagado)}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-amber-700 font-mono">
-                      {currency.format(compra.saldo_pendiente)}
-                    </TableCell>
                     <TableCell className="text-center whitespace-nowrap">
-                      <Badge variant={compra.estado_pago === "PAGADO" ? "success" : compra.estado_pago === "ABONO_PARCIAL" ? "warning" : "neutral"}>
-                        {compra.estado_pago === "PAGADO" ? "Pagado" : compra.estado_pago === "ABONO_PARCIAL" ? "Abono Parcial" : "Por Pagar"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1.5">
-                        <Link
-                          href={`/compras/${compra.id_compra}/editar`}
-                          className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
-                          title="Editar compra"
-                        >
-                          <Edit2 size={12} /> Editar
-                        </Link>
-                        <PurchasePaymentModal
-                          purchases={purchaseOptions}
-                          defaultPurchaseId={compra.id_compra}
-                          compact
-                        />
-                      </div>
+                      <Link
+                        href={`/compras/${compra.id_compra}/editar`}
+                        className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
+                        title="Editar compra"
+                      >
+                        <Edit2 size={12} /> Editar
+                      </Link>
                     </TableCell>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
-                  <TableCell colSpan={4}>TOTAL GENERAL COMPRAS</TableCell>
+                  <TableCell colSpan={4}>TOTAL GENERAL FACTURAS DE COMPRA</TableCell>
                   <TableCell className="text-center">{sumUnidades}</TableCell>
                   <TableCell className="text-right text-lf-muted">{currency.format(sumSubtotal)}</TableCell>
                   <TableCell className="text-right text-lf-muted">{currency.format(sumIva)}</TableCell>
                   <TableCell className="text-right text-lf-navy">{currency.format(sumTotal)}</TableCell>
-                  <TableCell className="text-right text-emerald-700">{currency.format(sumPagado)}</TableCell>
-                  <TableCell className="text-right text-amber-700">{currency.format(sumPendiente)}</TableCell>
-                  <TableCell colSpan={2}>—</TableCell>
+                  <TableCell>—</TableCell>
                 </tr>
               </tfoot>
             </Table>

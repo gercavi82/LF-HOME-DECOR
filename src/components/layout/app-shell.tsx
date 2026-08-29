@@ -43,12 +43,12 @@ type NavigationItem = {
 const navigation: NavigationItem[] = [
   { label: "Inicio", href: "/dashboard", icon: House, permissions: ["DASHBOARD_VER"] },
   { label: "Ventas", href: "/ventas", icon: ShoppingCart, permissions: ["VENTA_VER", "VENTA_CREAR"] },
-  { label: "Compras", href: "/compras", icon: Truck, permissions: ["COMPRA_VER", "INVENTARIO_VER", "DASHBOARD_VER"] },
+  { label: "Compras", href: "/compras", icon: Truck, permissions: ["COMPRA_VER"] },
   { label: "Productos", href: "/productos", icon: PackageSearch, permissions: ["PRODUCTO_VER"] },
   { label: "Inventario", href: "/inventario", icon: Boxes, permissions: ["INVENTARIO_VER"] },
-  { label: "Gastos", href: "/gastos", icon: Receipt, permissions: ["GASTOS_VER", "FINANZAS_VER", "DASHBOARD_VER"] },
-  { label: "Alertas", href: "/alertas", icon: Bell, permissions: ["INVENTARIO_VER"] },
-  { label: "Reportes", href: "/reportes", icon: ChartNoAxesCombined, permissions: ["FINANZAS_VER", "REPORTES_VER", "DASHBOARD_VER"] },
+  { label: "Gastos", href: "/gastos", icon: Receipt, permissions: ["GASTOS_VER"] },
+  { label: "Alertas", href: "/alertas", icon: Bell, permissions: ["INVENTARIO_AJUSTAR", "COMPRA_VER"] },
+  { label: "Reportes", href: "/reportes", icon: ChartNoAxesCombined, permissions: ["REPORTES_VER"] },
   { label: "Usuarios", href: "/usuarios", icon: UsersRound, permissions: ["USUARIO_VER"] },
   { label: "Configuración", href: "/configuracion", icon: Settings, administratorOnly: true },
 ];

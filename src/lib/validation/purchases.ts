@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 export const purchasePaymentSchema = z.object({
-  id_compra: z.coerce.number().int().positive("Seleccione una compra"),
+  id_compra: z.coerce.number().int().optional().nullable(),
+  proveedor: z.string().trim().max(200).optional().nullable(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   monto: z.coerce.number().positive("El monto debe ser mayor a 0"),
   forma_pago: z.string().trim().min(1, "Seleccione una forma de pago").default("Transferencia"),
-  referencia: z.string().trim().max(100).optional(),
-  observaciones: z.string().trim().max(500).optional(),
+  referencia: z.string().trim().max(100).optional().nullable(),
+  observaciones: z.string().trim().max(500).optional().nullable(),
 });
 
 export type PurchasePaymentInput = z.infer<typeof purchasePaymentSchema>;

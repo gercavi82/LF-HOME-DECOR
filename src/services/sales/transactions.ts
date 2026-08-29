@@ -8,8 +8,10 @@ import { requirePermission } from "@/src/services/auth/authorization";
 
 export const saleTransactionSchema = z.object({
   id_local: z.coerce.number().int().positive().default(1),
-  id_cliente: z.coerce.number().int().positive().nullable().optional(),
+  id_cliente: z.coerce.number().int().nonnegative().nullable().optional(),
   id_canal: z.coerce.number().int().positive().default(1),
+  id_usuario_asesor: z.coerce.number().int().positive().optional().nullable(),
+  fecha: z.string().optional().nullable(),
   descuento: z.coerce.number().min(0).max(999999.99).default(0),
   observaciones: z.string().trim().max(500).optional().nullable(),
   items: z
@@ -189,6 +191,18 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     const randomHex = randomBytes(3).toString("hex").toUpperCase();
     const numeroVenta = `V-${dateStr}-${randomHex}`;
 
+    let fechaVenta: Date;
+    if (parsed.fecha && /^\d{4}-\d{2}-\d{2}$/.test(parsed.fecha)) {
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+      fechaVenta = new Date(`${parsed.fecha}T${timeStr}`);
+    } else {
+      fechaVenta = new Date();
+    }
+
+    const sellerUserId = parsed.id_usuario_asesor ? Number(parsed.id_usuario_asesor) : context.id_usuario;
+    const finalCustomerId = (parsed.id_cliente && Number(parsed.id_cliente) > 0) ? Number(parsed.id_cliente) : null;
+
     const [saleRes] = await conn.execute<ResultSetHeader>(
       `INSERT INTO ventas (
          numero_venta,
@@ -203,13 +217,14 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
          total,
          observaciones,
          estado
-       ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, 'REGISTRADA')`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA')`,
       [
         numeroVenta,
         parsed.id_local || 1,
-        parsed.id_cliente || null,
+        finalCustomerId,
         parsed.id_canal || 1,
-        context.id_usuario,
+        sellerUserId,
+        fechaVenta,
         subtotalGeneral,
         descuentoTotal,
         ivaGeneral,
