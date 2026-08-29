@@ -160,6 +160,8 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   const selectedLocalId = filterParams.localId ? Number(filterParams.localId) : null;
   const selectedMes = filterParams.mes?.trim() || "";
 
+  await ensureCustomTables().catch(() => null);
+
   let sql = `
     SELECT 
       v.id_venta,
@@ -172,13 +174,29 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       v.total,
       v.observaciones,
       v.estado,
-      COALESCE(SUM(d.cantidad), 1) AS unidades
+      COALESCE(SUM(d.cantidad), 1) AS unidades,
+      COALESCE(SUM(
+        COALESCE(
+          NULLIF(d.costo_unitario, 0),
+          NULLIF(vp.costo_unitario, 0),
+          (
+            SELECT dc.precio_unitario 
+            FROM detalle_compras dc 
+            JOIN compras comp ON comp.id_compra = dc.id_compra 
+            WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+            ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+            LIMIT 1
+          ),
+          ROUND(d.precio_unitario * 0.60, 2)
+        ) * d.cantidad
+      ), 0) AS total_costo
     FROM ventas v
     JOIN locales l ON l.id_local = v.id_local
     LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
     JOIN canales_venta ch ON ch.id_canal = v.id_canal
     JOIN usuarios u ON u.id_usuario = v.id_usuario
     LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+    LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
   `;
 
   const whereClauses: string[] = [];
@@ -229,7 +247,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     }
 
     const [rows, advisorRows, localRows, expenseRows] = await Promise.all([
-      query<SaleListRowRaw>(sql, params),
+      query<SaleListRowRaw & { total_costo?: number }>(sql, params),
       query<{ id: number; nombre: string }>(
         `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
       ),
@@ -243,7 +261,8 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
 
     const mapped: SaleListItem[] = (rows ?? []).map((sale) => {
       const total = Number(sale.total) || 0;
-      const utilidad = Number((total * 0.327).toFixed(2));
+      const costo = Number((sale as { total_costo?: number }).total_costo) || 0;
+      const utilidad = Math.max(0, Number((total - costo).toFixed(2)));
       const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
       const comisionLocal = Number((utilidad * 0.40).toFixed(2));
 

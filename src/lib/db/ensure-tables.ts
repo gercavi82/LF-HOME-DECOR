@@ -237,6 +237,60 @@ export async function ensureCustomTables() {
       WHERE p.codigo = 'ASESOR' AND perm.activo = 1;
     `).catch(() => null);
 
+    // Asegurar columna costo_unitario en variantes_producto y detalle_ventas
+    await execute(`
+      ALTER TABLE \`variantes_producto\` ADD COLUMN \`costo_unitario\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+
+    await execute(`
+      ALTER TABLE \`detalle_ventas\` ADD COLUMN \`costo_unitario\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+
+    // Poblar costo_unitario en variantes_producto con base en compras reales (precio de compra con IVA incluido)
+    await execute(`
+      UPDATE \`variantes_producto\` vp
+      SET vp.costo_unitario = COALESCE(
+        (
+          SELECT dc.precio_unitario 
+          FROM detalle_compras dc 
+          JOIN compras c ON c.id_compra = dc.id_compra 
+          WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+          ORDER BY c.fecha DESC, dc.id_detalle_compra DESC 
+          LIMIT 1
+        ),
+        CASE 
+          WHEN vp.id_variante = 1 THEN 16.00
+          WHEN vp.id_variante = 2 THEN 18.00
+          WHEN vp.id_variante = 3 THEN 14.50
+          WHEN vp.id_variante = 4 THEN 9.00
+          WHEN vp.id_variante = 5 THEN 10.50
+          WHEN vp.id_variante = 6 THEN 10.00
+          WHEN vp.id_variante = 7 THEN 7.50
+          WHEN vp.id_variante = 8 THEN 8.50
+          WHEN vp.id_variante = 9 THEN 18.00
+          WHEN vp.id_variante = 10 THEN 22.00
+          WHEN vp.id_variante = 11 THEN 20.00
+          WHEN vp.id_variante = 12 THEN 16.00
+          WHEN vp.id_variante = 13 THEN 14.00
+          WHEN vp.id_variante = 14 THEN 2.00
+          WHEN vp.id_variante = 15 THEN 22.00
+          WHEN vp.id_variante = 16 THEN 11.00
+          WHEN vp.id_variante = 17 THEN 20.00
+          WHEN vp.id_variante = 18 THEN 24.00
+          ELSE ROUND(vp.precio_venta * 0.60, 2)
+        END
+      )
+      WHERE vp.costo_unitario = 0.00 OR vp.costo_unitario IS NULL;
+    `).catch(() => null);
+
+    // Actualizar detalle_ventas existentes con el costo_unitario de la variante
+    await execute(`
+      UPDATE \`detalle_ventas\` dv
+      JOIN \`variantes_producto\` vp ON vp.id_variante = dv.id_variante
+      SET dv.costo_unitario = vp.costo_unitario
+      WHERE dv.costo_unitario = 0.00 OR dv.costo_unitario IS NULL;
+    `).catch(() => null);
+
     tablesEnsured = true;
   } catch (error) {
     console.error("ensureCustomTables error (non-fatal):", error);

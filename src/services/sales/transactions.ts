@@ -72,26 +72,35 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       id_variante: number;
       cantidad: number;
       precio_venta: number;
+      costo_unitario: number;
       porcentaje_iva: number;
       item_descuento: number;
     }> = [];
 
     for (const item of parsed.items) {
       const [rows] = await conn.execute<RowDataPacket[]>(
-        `SELECT vp.id_variante, vp.precio_venta, vp.porcentaje_iva 
+        `SELECT vp.id_variante, vp.precio_venta, vp.porcentaje_iva,
+                COALESCE(vp.costo_unitario, (
+                  SELECT dc.precio_unitario 
+                  FROM detalle_compras dc 
+                  JOIN compras comp ON comp.id_compra = dc.id_compra 
+                  WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                  ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC LIMIT 1
+                ), ROUND(vp.precio_venta * 0.60, 2)) AS costo_unitario
          FROM variantes_producto vp
          JOIN productos p ON p.id_producto = vp.id_producto
          WHERE vp.id_variante = ? AND vp.activo = 1 AND p.activo = 1`,
         [item.id_variante]
       );
 
-      const variantData = rows?.[0] as VariantRow | undefined;
+      const variantData = rows?.[0] as (VariantRow & { costo_unitario?: number }) | undefined;
 
       if (!variantData || Number(variantData.precio_venta) <= 0) {
         throw new Error("Producto inactivo o con precio inválido.");
       }
 
       const precio = Number(variantData.precio_venta);
+      const costo = Number(variantData.costo_unitario) || 0;
       const iva = Number(variantData.porcentaje_iva);
       const lineaBruta = Math.round(precio * item.cantidad * 100) / 100;
       const itemDesc = Math.min(lineaBruta, Math.round((item.descuento || 0) * 100) / 100);
@@ -103,6 +112,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         id_variante: item.id_variante,
         cantidad: item.cantidad,
         precio_venta: precio,
+        costo_unitario: costo,
         porcentaje_iva: iva,
         item_descuento: itemDesc,
       });
@@ -246,8 +256,9 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
            porcentaje_iva,
            subtotal,
            iva,
-           total
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           total,
+           costo_unitario
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           saleId,
           line.id_variante,
@@ -258,6 +269,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
           line.subtotal,
           line.iva,
           line.total,
+          line.costo_unitario || 0,
         ]
       );
 

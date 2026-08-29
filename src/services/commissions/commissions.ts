@@ -71,6 +71,21 @@ export async function getCommissionsSummary(month?: string): Promise<{
       COALESCE(SUM(d.total), 0) AS total_ventas,
       COALESCE(SUM(d.subtotal), 0) AS total_subtotal,
       COALESCE(SUM(d.cantidad), 0) AS unidades,
+      COALESCE(SUM(
+        COALESCE(
+          NULLIF(d.costo_unitario, 0),
+          NULLIF(vp.costo_unitario, 0),
+          (
+            SELECT dc.precio_unitario 
+            FROM detalle_compras dc 
+            JOIN compras comp ON comp.id_compra = dc.id_compra 
+            WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+            ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+            LIMIT 1
+          ),
+          ROUND(d.precio_unitario * 0.60, 2)
+        ) * d.cantidad
+      ), 0) AS total_costo,
       (
         SELECT COALESCE(SUM(pc.monto), 0)
         FROM pagos_comisiones pc
@@ -89,18 +104,19 @@ export async function getCommissionsSummary(month?: string): Promise<{
 
   sql += `
     LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+    LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
     WHERE u.activo = 1 AND u.id_perfil IN (2, 3) AND u.nombres NOT LIKE '%Iralda%' AND u.apellidos NOT LIKE '%Manos%'
     GROUP BY u.id_usuario
     ORDER BY total_ventas DESC, u.nombres ASC
   `;
 
   try {
-    const rows = await query<CommissionRowRaw>(sql, params).catch(() => []);
+    const rows = await query<CommissionRowRaw & { total_costo?: number }>(sql, params).catch(() => []);
 
     const advisors: AdvisorCommissionSummary[] = (rows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
-      const utilidad = ventas > 0 ? Number((ventas * 0.327).toFixed(2)) : 0;
-      const costo = Number((ventas - utilidad).toFixed(2));
+      const costo = Number(r.total_costo) || 0;
+      const utilidad = Math.max(0, Number((ventas - costo).toFixed(2)));
       const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
       const comisionLocal = Number((utilidad * 0.40).toFixed(2));
       const unidades = Number(r.unidades) || 0;
