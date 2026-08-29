@@ -21,6 +21,10 @@ export function fromDatabaseError(error: DatabaseError, fallback: string) {
 export function publicError(error: unknown, fallback = "Ocurrió un error inesperado.") {
   if (error instanceof AppError) return { code: error.code, message: error.message };
   if (error instanceof ZodError) return { code: "VALIDATION_ERROR" as const, message: error.issues[0]?.message ?? "Revise los datos ingresados." };
+  if (error instanceof Error && error.message) {
+    console.error("publicError caught:", error);
+    return { code: "INTERNAL_ERROR" as const, message: error.message };
+  }
   return { code: "INTERNAL_ERROR" as const, message: fallback };
 }
 

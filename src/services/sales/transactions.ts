@@ -81,8 +81,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         `SELECT vp.id_variante, vp.precio_venta, vp.porcentaje_iva 
          FROM variantes_producto vp
          JOIN productos p ON p.id_producto = vp.id_producto
-         WHERE vp.id_variante = ? AND vp.activo = 1 AND p.activo = 1 
-         FOR SHARE`,
+         WHERE vp.id_variante = ? AND vp.activo = 1 AND p.activo = 1`,
         [item.id_variante]
       );
 
