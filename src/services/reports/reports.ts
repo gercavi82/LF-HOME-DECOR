@@ -142,33 +142,94 @@ export async function getFinancialReport(filters?: {
         unidades: number;
         total_ventas: number;
         total_costo: number;
+        utilidad: number;
+        comision_asesor: number;
+        comision_local: number;
       }>(
         `SELECT 
-           DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
-           COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
-           COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas,
-           COALESCE(SUM(
-             COALESCE(
-               NULLIF(d.costo_unitario, 0),
-               NULLIF(vp.costo_unitario, 0),
-               (
-                 SELECT ROUND(dc.total / dc.cantidad, 2) 
-                 FROM detalle_compras dc 
-                 JOIN compras comp ON comp.id_compra = dc.id_compra 
-                 WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-                 ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
-                 LIMIT 1
-               ),
-               ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
-             ) * COALESCE(d.cantidad, 1)
-           ), 0) AS total_costo
-         FROM ventas v
-         LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
-         LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-         LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
-         ${whereSql}
-         GROUP BY DATE_FORMAT(v.fecha, '%Y-%m')
-         ORDER BY DATE_FORMAT(v.fecha, '%Y-%m') ASC`,
+           DATE_FORMAT(s.fecha, '%Y-%m') AS year_month,
+           COALESCE(SUM(s.unidades), 0) AS unidades,
+           COALESCE(SUM(s.venta_total), 0) AS total_ventas,
+           COALESCE(SUM(s.costo_total), 0) AS total_costo,
+           COALESCE(SUM(s.utilidad), 0) AS utilidad,
+           COALESCE(SUM(s.comision_asesor), 0) AS comision_asesor,
+           COALESCE(SUM(s.comision_local), 0) AS comision_local
+         FROM (
+           SELECT 
+             v.id_venta,
+             v.fecha,
+             v.total AS venta_total,
+             COALESCE(SUM(d.cantidad), 1) AS unidades,
+             COALESCE(SUM(
+               COALESCE(
+                 NULLIF(d.costo_unitario, 0),
+                 NULLIF(vp.costo_unitario, 0),
+                 (
+                   SELECT ROUND(dc.total / dc.cantidad, 2) 
+                   FROM detalle_compras dc 
+                   JOIN compras comp ON comp.id_compra = dc.id_compra 
+                   WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                   ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                   LIMIT 1
+                 ),
+                 ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+               ) * d.cantidad
+             ), 0) AS costo_total,
+             GREATEST(0, v.total - COALESCE(SUM(
+               COALESCE(
+                 NULLIF(d.costo_unitario, 0),
+                 NULLIF(vp.costo_unitario, 0),
+                 (
+                   SELECT ROUND(dc.total / dc.cantidad, 2) 
+                   FROM detalle_compras dc 
+                   JOIN compras comp ON comp.id_compra = dc.id_compra 
+                   WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                   ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                   LIMIT 1
+                 ),
+                 ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+               ) * d.cantidad
+             ), 0)) AS utilidad,
+             ROUND(GREATEST(0, v.total - COALESCE(SUM(
+               COALESCE(
+                 NULLIF(d.costo_unitario, 0),
+                 NULLIF(vp.costo_unitario, 0),
+                 (
+                   SELECT ROUND(dc.total / dc.cantidad, 2) 
+                   FROM detalle_compras dc 
+                   JOIN compras comp ON comp.id_compra = dc.id_compra 
+                   WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                   ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                   LIMIT 1
+                 ),
+                 ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+               ) * d.cantidad
+             ), 0)) * 0.60, 2) AS comision_asesor,
+             ROUND(GREATEST(0, v.total - COALESCE(SUM(
+               COALESCE(
+                 NULLIF(d.costo_unitario, 0),
+                 NULLIF(vp.costo_unitario, 0),
+                 (
+                   SELECT ROUND(dc.total / dc.cantidad, 2) 
+                   FROM detalle_compras dc 
+                   JOIN compras comp ON comp.id_compra = dc.id_compra 
+                   WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                   ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                   LIMIT 1
+                 ),
+                 ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+               ) * d.cantidad
+             ), 0)) * 0.40, 2) AS comision_local
+           FROM ventas v
+           LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+           LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+           LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
+           WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+           ${whereClauses.length ? `AND ${whereClauses.join(" AND ")}` : ""}
+           GROUP BY v.id_venta
+         ) s
+         GROUP BY DATE_FORMAT(s.fecha, '%Y-%m')
+         ORDER BY DATE_FORMAT(s.fecha, '%Y-%m') ASC`,
         params
       ).catch(() => []),
       query<{
@@ -210,12 +271,13 @@ export async function getFinancialReport(filters?: {
     const monthlyBreakdown: MonthlySalesBreakdown[] = (monthlyRows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
       const costo = Number(r.total_costo) || 0;
-      const utilidad = Math.max(0, Number((ventas - costo).toFixed(2)));
+      const utilidad = Number(r.utilidad) || Math.max(0, Number((ventas - costo).toFixed(2)));
       const ym = String(r.year_month || "2026-06");
       const [y, m] = ym.split("-");
       const label = `${MONTH_NAMES[m] || m} ${y || "2026"}`;
       const totalCompras = purchaseMap.get(ym) || 0;
-      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
+      const comisionAsesores = Number(r.comision_asesor) || Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number(r.comision_local) || Number((utilidad * 0.40).toFixed(2));
       const gastosMes = Number(expenseMap.get(ym) || 0);
       const saldoComisionLocal = Number((comisionLocal - gastosMes).toFixed(2));
 
@@ -227,7 +289,7 @@ export async function getFinancialReport(filters?: {
         total_costo: costo,
         total_compras: totalCompras,
         utilidad,
-        comision_asesores: Number((utilidad * 0.60).toFixed(2)),
+        comision_asesores: comisionAsesores,
         comision_local: comisionLocal,
         gastos: gastosMes,
         saldo_comision_local: saldoComisionLocal,
@@ -240,19 +302,52 @@ export async function getFinancialReport(filters?: {
       cat_nombre: string;
       unidades: number;
       total_ventas: number;
+      total_costo: number;
+      utilidad: number;
     }>(
       `SELECT 
          COALESCE(tp.nombre, 'General') AS tipo_nombre,
          COALESCE(cat.nombre, 'General') AS cat_nombre,
-         COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
-         COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas
-       FROM ventas v
-       LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+         COALESCE(SUM(d.cantidad), 0) AS unidades,
+         COALESCE(SUM(d.total), 0) AS total_ventas,
+         COALESCE(SUM(
+           COALESCE(
+             NULLIF(d.costo_unitario, 0),
+             NULLIF(vp.costo_unitario, 0),
+             (
+               SELECT ROUND(dc.total / dc.cantidad, 2) 
+               FROM detalle_compras dc 
+               JOIN compras comp ON comp.id_compra = dc.id_compra 
+               WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+               LIMIT 1
+             ),
+             ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+           ) * d.cantidad
+         ), 0) AS total_costo,
+         GREATEST(0, COALESCE(SUM(d.total), 0) - COALESCE(SUM(
+           COALESCE(
+             NULLIF(d.costo_unitario, 0),
+             NULLIF(vp.costo_unitario, 0),
+             (
+               SELECT ROUND(dc.total / dc.cantidad, 2) 
+               FROM detalle_compras dc 
+               JOIN compras comp ON comp.id_compra = dc.id_compra 
+               WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+               ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+               LIMIT 1
+             ),
+             ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+           ) * d.cantidad
+         ), 0)) AS utilidad
+       FROM detalle_ventas d
+       JOIN ventas v ON v.id_venta = d.id_venta
        LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
        LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
        LEFT JOIN tipos_producto tp ON tp.id_tipo = prod.id_tipo
        LEFT JOIN categorias cat ON cat.id_categoria = prod.id_categoria
-       ${whereSql}
+       WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+       ${whereClauses.length ? `AND ${whereClauses.join(" AND ")}` : ""}
        GROUP BY COALESCE(tp.nombre, 'General'), COALESCE(cat.nombre, 'General')
        ORDER BY total_ventas DESC`,
       params
@@ -260,8 +355,8 @@ export async function getFinancialReport(filters?: {
 
     const typeBreakdown: ProductTypeSalesBreakdown[] = (typeRowsQuery ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
-      const utilidad = Number((ventas * 0.327).toFixed(2));
-      const costo = Number((ventas - utilidad).toFixed(2));
+      const costo = Number(r.total_costo) || 0;
+      const utilidad = Number(r.utilidad) || Math.max(0, Number((ventas - costo).toFixed(2)));
       const margen = ventas > 0 ? Number(((utilidad / ventas) * 100).toFixed(1)) : 0;
 
       return {
@@ -275,62 +370,116 @@ export async function getFinancialReport(filters?: {
       };
     });
 
-    // 6. Liquidación por Asesor con los filtros aplicados
-    let advisorSql = `
+    // 6. Liquidación por Asesor calculada exactamente por venta unitaria (60% y 40%)
+    const advWhereClauses: string[] = [];
+    const advParams: unknown[] = [];
+    if (selectedYear) {
+      advWhereClauses.push(`DATE_FORMAT(v.fecha, '%Y') = ?`);
+      advParams.push(selectedYear);
+    }
+    if (selectedMonth) {
+      advWhereClauses.push(`DATE_FORMAT(v.fecha, '%m') = ?`);
+      advParams.push(selectedMonth.padStart(2, "0"));
+    }
+    if (selectedTipoId && Number(selectedTipoId) > 0) {
+      advWhereClauses.push(`prod.id_tipo = ?`);
+      advParams.push(Number(selectedTipoId));
+    }
+
+    const advisorSql = `
       SELECT 
         u.id_usuario,
         u.nombres,
         u.apellidos,
         u.cedula,
         u.correo,
-        COALESCE(SUM(COALESCE(d.cantidad, 1)), 0) AS unidades,
-        COALESCE(SUM(COALESCE(d.total, v.total)), 0) AS total_ventas,
-        COALESCE(SUM(
-          COALESCE(
-            NULLIF(d.costo_unitario, 0),
-            NULLIF(vp.costo_unitario, 0),
-            (
-              SELECT ROUND(dc.total / dc.cantidad, 2) 
-              FROM detalle_compras dc 
-              JOIN compras comp ON comp.id_compra = dc.id_compra 
-              WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-              ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
-              LIMIT 1
-            ),
-            ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
-          ) * COALESCE(d.cantidad, 1)
-        ), 0) AS total_costo,
+        COALESCE(SUM(s.unidades), 0) AS unidades,
+        COALESCE(SUM(s.venta_total), 0) AS total_ventas,
+        COALESCE(SUM(s.costo_total), 0) AS total_costo,
+        COALESCE(SUM(s.utilidad), 0) AS total_utilidad,
+        COALESCE(SUM(s.comision_asesor), 0) AS comision_asesor,
+        COALESCE(SUM(s.comision_local), 0) AS comision_local,
         (
           SELECT COALESCE(SUM(pc.monto), 0)
           FROM pagos_comisiones pc
           WHERE pc.id_usuario = u.id_usuario AND pc.activo = 1
         ) AS total_abonos
       FROM usuarios u
-      LEFT JOIN ventas v ON v.id_usuario = u.id_usuario AND UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-    `;
-
-    const advParams: unknown[] = [];
-    if (selectedYear) {
-      advisorSql += ` AND DATE_FORMAT(v.fecha, '%Y') = ?`;
-      advParams.push(selectedYear);
-    }
-    if (selectedMonth) {
-      advisorSql += ` AND DATE_FORMAT(v.fecha, '%m') = ?`;
-      advParams.push(selectedMonth.padStart(2, "0"));
-    }
-
-    advisorSql += `
-      LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
-      LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-      LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
-    `;
-
-    if (selectedTipoId && Number(selectedTipoId) > 0) {
-      advisorSql += ` AND prod.id_tipo = ?`;
-      advParams.push(Number(selectedTipoId));
-    }
-
-    advisorSql += `
+      LEFT JOIN (
+        SELECT 
+          v.id_usuario,
+          v.id_venta,
+          v.fecha,
+          v.total AS venta_total,
+          COALESCE(SUM(d.cantidad), 1) AS unidades,
+          COALESCE(SUM(
+            COALESCE(
+              NULLIF(d.costo_unitario, 0),
+              NULLIF(vp.costo_unitario, 0),
+              (
+                SELECT ROUND(dc.total / dc.cantidad, 2) 
+                FROM detalle_compras dc 
+                JOIN compras comp ON comp.id_compra = dc.id_compra 
+                WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                LIMIT 1
+              ),
+              ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+            ) * d.cantidad
+          ), 0) AS costo_total,
+          GREATEST(0, v.total - COALESCE(SUM(
+            COALESCE(
+              NULLIF(d.costo_unitario, 0),
+              NULLIF(vp.costo_unitario, 0),
+              (
+                SELECT ROUND(dc.total / dc.cantidad, 2) 
+                FROM detalle_compras dc 
+                JOIN compras comp ON comp.id_compra = dc.id_compra 
+                WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                LIMIT 1
+              ),
+              ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+            ) * d.cantidad
+          ), 0)) AS utilidad,
+          ROUND(GREATEST(0, v.total - COALESCE(SUM(
+            COALESCE(
+              NULLIF(d.costo_unitario, 0),
+              NULLIF(vp.costo_unitario, 0),
+              (
+                SELECT ROUND(dc.total / dc.cantidad, 2) 
+                FROM detalle_compras dc 
+                JOIN compras comp ON comp.id_compra = dc.id_compra 
+                WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                LIMIT 1
+              ),
+              ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+            ) * d.cantidad
+          ), 0)) * 0.60, 2) AS comision_asesor,
+          ROUND(GREATEST(0, v.total - COALESCE(SUM(
+            COALESCE(
+              NULLIF(d.costo_unitario, 0),
+              NULLIF(vp.costo_unitario, 0),
+              (
+                SELECT ROUND(dc.total / dc.cantidad, 2) 
+                FROM detalle_compras dc 
+                JOIN compras comp ON comp.id_compra = dc.id_compra 
+                WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+                ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
+                LIMIT 1
+              ),
+              ROUND(COALESCE(d.precio_unitario, vp.precio_venta, 0) * 0.60, 2)
+            ) * d.cantidad
+          ), 0)) * 0.40, 2) AS comision_local
+        FROM ventas v
+        LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
+        LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+        LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
+        WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+        ${advWhereClauses.length ? `AND ${advWhereClauses.join(" AND ")}` : ""}
+        GROUP BY v.id_venta
+      ) s ON s.id_usuario = u.id_usuario
       WHERE u.activo = 1 AND (u.id_perfil IN (2, 3, 4) OR u.id_usuario IN (SELECT DISTINCT id_usuario FROM ventas)) AND u.nombres NOT LIKE '%Iralda%' AND u.apellidos NOT LIKE '%Manos%'
       GROUP BY u.id_usuario
       ORDER BY total_ventas DESC, u.nombres ASC
@@ -345,6 +494,9 @@ export async function getFinancialReport(filters?: {
       unidades: number;
       total_ventas: number;
       total_costo: number;
+      total_utilidad: number;
+      comision_asesor: number;
+      comision_local: number;
       total_abonos: number;
     }>(advisorSql, advParams).catch(() => []);
 
@@ -354,9 +506,9 @@ export async function getFinancialReport(filters?: {
     const advisors: AdvisorReportItem[] = (advisorRows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
       const costo = Number(r.total_costo) || 0;
-      const utilidad = Math.max(0, Number((ventas - costo).toFixed(2)));
-      const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
-      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
+      const utilidad = Number(r.total_utilidad) || Math.max(0, Number((ventas - costo).toFixed(2)));
+      const comisionAsesor = Number(r.comision_asesor) || Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number(r.comision_local) || Number((utilidad * 0.40).toFixed(2));
 
       const abonosRegistrados = Number(r.total_abonos) || 0;
       const pagado = abonosRegistrados;
