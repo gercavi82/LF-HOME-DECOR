@@ -1,4 +1,4 @@
-import { Eye, History, Plus, ReceiptText, Search, Filter, RotateCcw } from "lucide-react";
+import { Eye, History, Plus, ReceiptText, Search, Filter, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
@@ -12,12 +12,14 @@ const dateFormatter = new Intl.DateTimeFormat("es-EC", {
   timeStyle: "short",
 });
 
+const PAGE_SIZE = 7;
+
 export default async function SalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; asesor?: string; local?: string; mes?: string; created?: string }>;
+  searchParams: Promise<{ q?: string; asesor?: string; local?: string; mes?: string; page?: string; created?: string }>;
 }) {
-  const { q = "", asesor = "", local = "", mes = "", created } = await searchParams;
+  const { q = "", asesor = "", local = "", mes = "", page = "1", created } = await searchParams;
 
   const { sales, summary, advisors, locales, count, context } = await listSales({
     q,
@@ -31,6 +33,26 @@ export default async function SalesPage({
     context.permisos.some((permission) => permission.codigo === "VENTA_CREAR");
 
   const hasActiveFilters = Boolean(q || asesor || local || mes);
+
+  // Cálculo de paginación de 7 en 7
+  const totalItems = sales.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const currentPage = Math.max(1, Math.min(Number(page) || 1, totalPages));
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, totalItems);
+  const paginatedSales = sales.slice(startIndex, endIndex);
+
+  const createPageUrl = (newPage: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (asesor) params.set("asesor", asesor);
+    if (local) params.set("local", local);
+    if (mes) params.set("mes", mes);
+    if (newPage > 1) params.set("page", String(newPage));
+    const qs = params.toString();
+    return qs ? `/ventas?${qs}` : "/ventas";
+  };
 
   return (
     <ContentContainer>
@@ -202,7 +224,7 @@ export default async function SalesPage({
                 </tr>
               </thead>
               <tbody>
-                {sales.map((sale) => (
+                {paginatedSales.map((sale) => (
                   <tr key={sale.id_venta} className="hover:bg-lf-surface-muted/60">
                     <TableCell className="font-mono text-sm font-semibold text-lf-navy">
                       {sale.numero_venta}
@@ -245,7 +267,7 @@ export default async function SalesPage({
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
-                  <TableCell colSpan={4}>TOTAL FILTRADO</TableCell>
+                  <TableCell colSpan={4}>TOTAL FILTRADO ({totalItems} ventas)</TableCell>
                   <TableCell className="text-center">{summary.totalUnidades}</TableCell>
                   <TableCell className="text-right text-lf-navy">{currency.format(summary.totalVentas)}</TableCell>
                   <TableCell className="text-right text-emerald-700">{currency.format(summary.totalComisionAsesor)}</TableCell>
@@ -255,9 +277,70 @@ export default async function SalesPage({
               </tfoot>
             </Table>
           </TableContainer>
-          <p className="mt-3 text-sm text-lf-muted">
-            Mostrando {sales.length} venta(s) registradas.
-          </p>
+
+          {/* Barra de Paginación de 7 en 7 */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-lf-surface p-3 shadow-sm">
+            <p className="text-xs text-lf-muted">
+              Mostrando <span className="font-bold text-lf-navy">{startIndex + 1}</span> a <span className="font-bold text-lf-navy">{endIndex}</span> de <span className="font-bold text-lf-navy">{totalItems}</span> ventas registradas
+            </p>
+
+            {totalPages > 1 ? (
+              <div className="flex items-center gap-1.5">
+                <Link
+                  href={createPageUrl(currentPage - 1)}
+                  aria-disabled={currentPage <= 1}
+                  className={`inline-flex h-9 items-center gap-1 rounded-xl px-3 text-xs font-semibold transition ${
+                    currentPage <= 1
+                      ? "pointer-events-none border border-transparent bg-lf-surface-muted text-lf-muted/40"
+                      : "border bg-white text-lf-navy hover:bg-lf-surface-muted shadow-sm"
+                  }`}
+                >
+                  <ChevronLeft size={15} /> Anterior
+                </Link>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                    if (
+                      p === 1 ||
+                      p === totalPages ||
+                      (p >= currentPage - 1 && p <= currentPage + 1)
+                    ) {
+                      const isCurrent = p === currentPage;
+                      return (
+                        <Link
+                          key={p}
+                          href={createPageUrl(p)}
+                          className={`grid size-9 place-items-center rounded-xl text-xs font-bold transition ${
+                            isCurrent
+                              ? "bg-lf-navy text-white shadow-sm"
+                              : "border bg-white text-lf-navy hover:bg-lf-surface-muted shadow-sm"
+                          }`}
+                        >
+                          {p}
+                        </Link>
+                      );
+                    }
+                    if (p === currentPage - 2 || p === currentPage + 2) {
+                      return <span key={p} className="px-1 text-xs text-lf-muted">...</span>;
+                    }
+                    return null;
+                  })}
+                </div>
+
+                <Link
+                  href={createPageUrl(currentPage + 1)}
+                  aria-disabled={currentPage >= totalPages}
+                  className={`inline-flex h-9 items-center gap-1 rounded-xl px-3 text-xs font-semibold transition ${
+                    currentPage >= totalPages
+                      ? "pointer-events-none border border-transparent bg-lf-surface-muted text-lf-muted/40"
+                      : "border bg-white text-lf-navy hover:bg-lf-surface-muted shadow-sm"
+                  }`}
+                >
+                  Siguiente <ChevronRight size={15} />
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </>
       ) : (
         <Card>
@@ -278,3 +361,4 @@ export default async function SalesPage({
     </ContentContainer>
   );
 }
+
