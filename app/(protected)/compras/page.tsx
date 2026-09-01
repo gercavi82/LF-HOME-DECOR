@@ -1,9 +1,9 @@
-import { Filter, History, Plus, RotateCcw, Search, ShoppingBag, Edit2 } from "lucide-react";
+import { CheckCircle2, Eye, Filter, History, Layers, Plus, RotateCcw, Search, ShoppingBag, Edit2, Wallet } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
-import { listPurchases, listPurchasePayments } from "@/src/services/purchases/purchases";
+import { listPurchases, listPurchasePayments, getPurchaseCatalogs } from "@/src/services/purchases/purchases";
 import { PurchasePaymentModal } from "@/src/components/purchases/payment-modal";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
@@ -27,11 +27,11 @@ const MONTHS_LIST = [
 export default async function PurchasesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ anio?: string; mes?: string; tipo?: string; q?: string }>;
+  searchParams: Promise<{ anio?: string; mes?: string; tipo?: string; q?: string; auto_abono?: string; created?: string; updated?: string }>;
 }) {
-  const { anio = "", mes = "", tipo = "", q = "" } = await searchParams;
+  const { anio = "", mes = "", tipo = "", q = "", auto_abono, created, updated } = await searchParams;
 
-  const [{ purchases, summary, availableYears, availableTypes }, purchasePayments] = await Promise.all([
+  const [{ purchases, summary, availableYears, availableTypes }, purchasePayments, catalogs] = await Promise.all([
     listPurchases({
       year: anio,
       month: mes,
@@ -39,6 +39,7 @@ export default async function PurchasesPage({
       q,
     }),
     listPurchasePayments(),
+    getPurchaseCatalogs(),
   ]);
 
   const hasActiveFilters = Boolean(anio || mes || tipo || q);
@@ -46,6 +47,7 @@ export default async function PurchasesPage({
   // Lista de compras para el modal de abonos
   const purchaseOptions = purchases.map((c) => ({
     id_compra: c.id_compra,
+    id_proveedor: c.id_proveedor,
     numero_compra: c.numero_compra,
     proveedor: c.proveedor,
     saldo_pendiente: c.saldo_pendiente,
@@ -53,8 +55,6 @@ export default async function PurchasesPage({
 
   // Totales calculados directamente sobre las filas de la tabla
   const sumUnidades = purchases.reduce((sum, p) => sum + p.unidades, 0);
-  const sumSubtotal = purchases.reduce((sum, p) => sum + p.subtotal, 0);
-  const sumIva = purchases.reduce((sum, p) => sum + p.iva, 0);
   const sumTotal = purchases.reduce((sum, p) => sum + p.total, 0);
   const sumPagado = purchases.reduce((sum, p) => sum + p.total_pagado, 0);
   const sumPendiente = purchases.reduce((sum, p) => sum + p.saldo_pendiente, 0);
@@ -64,7 +64,7 @@ export default async function PurchasesPage({
       <PageHeader
         eyebrow="Adquisición de mercadería"
         title="Historial de compras"
-        description="Registro histórico de compras a proveedores, abonos vinculados por fecha y saldos pendientes."
+        description="Registro histórico de compras a proveedores, cruce FIFO de abonos y saldos pendientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -73,13 +73,30 @@ export default async function PurchasesPage({
             >
               <Plus size={14} /> Nueva compra
             </Link>
-            <PurchasePaymentModal purchases={purchaseOptions} />
+            <PurchasePaymentModal
+              purchases={purchaseOptions}
+              suppliers={catalogs.proveedores}
+              triggerLabel="Registrar depósito / abono"
+            />
           </div>
         }
       />
 
-      {/* Tarjetas de Resumen de Compras y Abonos */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Alerta de Abono Automático aplicado al crear compra */}
+      {auto_abono ? (
+        <div className="mb-6 rounded-2xl border border-emerald-300 bg-emerald-50/90 p-4 text-emerald-950 shadow-sm flex items-start gap-3 animate-in fade-in">
+          <CheckCircle2 size={22} className="mt-0.5 text-emerald-700 shrink-0" />
+          <div>
+            <p className="font-bold text-base">¡Compra registrada exitosamente!</p>
+            <p className="text-sm mt-0.5">
+              Esta compra recibió automáticamente un abono de <strong>{currency.format(Number(auto_abono))}</strong> proveniente de depósitos disponibles del proveedor (Conciliación FIFO).
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Tarjetas de Resumen Financiero y Cruce FIFO */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="border-l-4 border-l-lf-navy">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Total Compras</p>
@@ -88,19 +105,27 @@ export default async function PurchasesPage({
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-lf-muted">Unidades Ingresadas</p>
-            <p className="mt-1 text-2xl font-bold text-blue-900">{summary.unidades}</p>
-            <p className="mt-1 text-xs text-lf-muted">Prendas y edredones</p>
-          </CardContent>
-        </Card>
-
         <Card className="border-l-4 border-l-emerald-600 bg-emerald-50/20">
           <CardContent className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Total Depósitos / Abonos</p>
             <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(summary.totalPagado)}</p>
-            <p className="mt-1 text-xs text-emerald-600">Abonos y pagos a proveedores</p>
+            <p className="mt-1 text-xs text-emerald-600">Transferencias y pagos</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-teal-600 bg-teal-50/20">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-800">Total Aplicado (FIFO)</p>
+            <p className="mt-1 text-2xl font-bold text-teal-700">{currency.format(summary.totalAplicado)}</p>
+            <p className="mt-1 text-xs text-teal-600">Cruzado en compras</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-blue-600 bg-blue-50/20">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-800">Depósitos Disponibles</p>
+            <p className="mt-1 text-2xl font-bold text-blue-700">{currency.format(summary.depositosDisponibles)}</p>
+            <p className="mt-1 text-xs text-blue-600">Saldo a favor de compras</p>
           </CardContent>
         </Card>
 
@@ -217,77 +242,120 @@ export default async function PurchasesPage({
             <Table>
               <thead>
                 <tr>
-                  <TableHead>Nº Documento</TableHead>
+                  <TableHead>Nº Factura</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead>Proveedor</TableHead>
                   <TableHead>Producto / Detalle</TableHead>
-                  <TableHead className="text-center">Cant.</TableHead>
-                  <TableHead className="text-right">Subtotal</TableHead>
-                  <TableHead className="text-right">IVA</TableHead>
-                  <TableHead className="text-right">Total Compra</TableHead>
-                  <TableHead className="text-center">Acción</TableHead>
+                  <TableHead className="text-right font-bold">Total Factura</TableHead>
+                  <TableHead className="text-right">Abonado</TableHead>
+                  <TableHead className="text-right">Saldo Pendiente</TableHead>
+                  <TableHead className="text-center">Estado de Pago</TableHead>
+                  <TableHead className="text-center">Acciones</TableHead>
                 </tr>
               </thead>
               <tbody>
-                {purchases.map((compra) => (
-                  <tr key={compra.id_compra} className="hover:bg-lf-surface-muted/60">
-                    <TableCell className="font-mono text-sm font-semibold text-lf-navy">
-                      {compra.numero_compra}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-sm">
-                      {dateFormatter.format(new Date(`${compra.fecha}T12:00:00`))}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      <p className="font-medium text-lf-navy">{compra.proveedor}</p>
-                    </TableCell>
-                    <TableCell className="min-w-[280px] max-w-md text-xs">
-                      <div className="flex flex-col gap-1.5 py-1">
-                        {compra.producto ? (
-                          compra.producto.split(/\s*\|\s*/).map((item, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-xs font-medium text-slate-900 shadow-2xs"
-                            >
-                              {item}
-                            </span>
-                          ))
+                {purchases.map((compra) => {
+                  let badgeVariant: "success" | "warning" | "danger" = "danger";
+                  let badgeText = "Pendiente";
+                  if (compra.estado_pago === "PAGADA") {
+                    badgeVariant = "success";
+                    badgeText = "Pagada";
+                  } else if (compra.estado_pago === "ABONO_PARCIAL") {
+                    badgeVariant = "warning";
+                    badgeText = "Abono Parcial";
+                  }
+
+                  return (
+                    <tr key={compra.id_compra} className="hover:bg-lf-surface-muted/60">
+                      <TableCell className="font-mono text-sm font-semibold text-lf-navy">
+                        <Link href={`/compras/${compra.id_compra}`} className="hover:underline flex items-center gap-1">
+                          {compra.numero_compra}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-sm">
+                        {dateFormatter.format(new Date(`${compra.fecha}T12:00:00`))}
+                      </TableCell>
+                      <TableCell className="text-sm font-medium text-lf-navy">
+                        {compra.proveedor}
+                      </TableCell>
+                      <TableCell className="min-w-[240px] max-w-sm text-xs">
+                        <div className="flex flex-col gap-1 py-1">
+                          {compra.producto ? (
+                            compra.producto.split(/\s*\|\s*/).map((item, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-0.5 text-xs font-medium text-slate-800"
+                              >
+                                {item}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-lf-muted">—</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-lf-navy font-mono text-sm">
+                        {currency.format(compra.total)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-emerald-700 font-mono font-medium">
+                        {currency.format(compra.total_pagado)}
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-mono font-bold">
+                        {compra.saldo_pendiente > 0 ? (
+                          <span className="text-amber-700">{currency.format(compra.saldo_pendiente)}</span>
                         ) : (
-                          <span className="text-lf-muted">—</span>
+                          <span className="text-emerald-600">$0,00</span>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center font-bold text-lf-navy">
-                      {compra.unidades}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-lf-muted font-mono">
-                      {currency.format(compra.subtotal)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm text-lf-muted font-mono">
-                      {currency.format(compra.iva)}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-lf-navy font-mono">
-                      {currency.format(compra.total)}
-                    </TableCell>
-                    <TableCell className="text-center whitespace-nowrap">
-                      <Link
-                        href={`/compras/${compra.id_compra}/editar`}
-                        className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
-                        title="Editar compra"
-                      >
-                        <Edit2 size={12} /> Editar
-                      </Link>
-                    </TableCell>
-                  </tr>
-                ))}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <Badge variant={badgeVariant} className="text-xs px-2 py-0.5">
+                            {badgeText}
+                          </Badge>
+                          {compra.estado_pago === "ABONO_PARCIAL" ? (
+                            <span className="text-[10px] text-lf-muted">
+                              Abonado: {currency.format(compra.total_pagado)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Link
+                            href={`/compras/${compra.id_compra}`}
+                            className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
+                            title="Ver detalle de la compra y abonos"
+                          >
+                            <Eye size={13} /> Ver
+                          </Link>
+                          <Link
+                            href={`/compras/${compra.id_compra}/editar`}
+                            className="inline-flex h-8 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-lf-muted hover:text-lf-navy hover:bg-lf-surface-muted transition shadow-2xs"
+                            title="Editar compra"
+                          >
+                            <Edit2 size={13} />
+                          </Link>
+                          {compra.saldo_pendiente > 0 ? (
+                            <PurchasePaymentModal
+                              purchases={purchaseOptions}
+                              suppliers={catalogs.proveedores}
+                              defaultPurchaseId={compra.id_compra}
+                              compact
+                            />
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
                   <TableCell colSpan={4}>TOTAL GENERAL FACTURAS DE COMPRA</TableCell>
-                  <TableCell className="text-center">{sumUnidades}</TableCell>
-                  <TableCell className="text-right text-lf-muted">{currency.format(sumSubtotal)}</TableCell>
-                  <TableCell className="text-right text-lf-muted">{currency.format(sumIva)}</TableCell>
-                  <TableCell className="text-right text-lf-navy">{currency.format(sumTotal)}</TableCell>
-                  <TableCell>—</TableCell>
+                  <TableCell className="text-right text-lf-navy font-mono text-base">{currency.format(sumTotal)}</TableCell>
+                  <TableCell className="text-right text-emerald-700 font-mono text-base">{currency.format(sumPagado)}</TableCell>
+                  <TableCell className="text-right text-amber-700 font-mono text-base">{currency.format(sumPendiente)}</TableCell>
+                  <TableCell colSpan={2}>—</TableCell>
                 </tr>
               </tfoot>
             </Table>
@@ -310,9 +378,9 @@ export default async function PurchasesPage({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold text-lf-navy">
-              <History size={19} className="text-lf-terracotta" /> Historial de Abonos y Pagos a Proveedores
+              <History size={19} className="text-lf-terracotta" /> Historial de Depósitos y Abonos a Proveedores
             </h2>
-            <p className="text-sm text-lf-muted">Registro detallado de transferencias y pagos aplicados a cada compra.</p>
+            <p className="text-sm text-lf-muted">Registro de depósitos con monto original, monto aplicado por FIFO y saldo disponible.</p>
           </div>
         </div>
 
@@ -322,13 +390,14 @@ export default async function PurchasesPage({
               <thead>
                 <tr>
                   <TableHead>Fecha</TableHead>
-                  <TableHead>Nº Compra</TableHead>
                   <TableHead>Proveedor</TableHead>
+                  <TableHead className="text-right">Monto Depósito</TableHead>
+                  <TableHead className="text-right">Monto Aplicado</TableHead>
+                  <TableHead className="text-right">Saldo Disponible</TableHead>
                   <TableHead>Forma de Pago</TableHead>
                   <TableHead>Nº Referencia</TableHead>
                   <TableHead>Observaciones</TableHead>
                   <TableHead>Registrado Por</TableHead>
-                  <TableHead className="text-right">Monto Abonado</TableHead>
                 </tr>
               </thead>
               <tbody>
@@ -337,18 +406,46 @@ export default async function PurchasesPage({
                     <TableCell className="whitespace-nowrap text-sm">
                       {dateFormatter.format(new Date(`${p.fecha}T12:00:00`))}
                     </TableCell>
-                    <TableCell className="font-mono text-sm font-semibold text-lf-navy">{p.numero_compra}</TableCell>
-                    <TableCell className="text-sm font-medium">{p.proveedor}</TableCell>
+                    <TableCell className="text-sm font-medium text-lf-navy">{p.proveedor}</TableCell>
+                    <TableCell className="text-right font-bold text-lf-navy font-mono text-sm">
+                      {currency.format(p.monto)}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-emerald-700 font-mono text-sm">
+                      {currency.format(p.monto_aplicado)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm font-bold">
+                      {p.saldo_disponible > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                          <Wallet size={12} /> {currency.format(p.saldo_disponible)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-lf-muted">Agotado ($0,00)</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="neutral">{p.forma_pago}</Badge>
                     </TableCell>
                     <TableCell className="text-xs font-mono text-lf-muted">{p.referencia || "—"}</TableCell>
                     <TableCell className="text-sm text-lf-muted">{p.observaciones || "—"}</TableCell>
                     <TableCell className="text-xs text-lf-muted">{p.registrador}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">{currency.format(p.monto)}</TableCell>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-lf-surface-muted/40 font-bold border-t">
+                  <TableCell colSpan={2}>TOTAL DEPÓSITOS</TableCell>
+                  <TableCell className="text-right font-mono text-lf-navy text-sm">
+                    {currency.format(purchasePayments.reduce((s, p) => s + p.monto, 0))}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-emerald-700 text-sm">
+                    {currency.format(purchasePayments.reduce((s, p) => s + p.monto_aplicado, 0))}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-blue-700 text-sm">
+                    {currency.format(purchasePayments.reduce((s, p) => s + p.saldo_disponible, 0))}
+                  </TableCell>
+                  <TableCell colSpan={4}>—</TableCell>
+                </tr>
+              </tfoot>
             </Table>
           </TableContainer>
         ) : (

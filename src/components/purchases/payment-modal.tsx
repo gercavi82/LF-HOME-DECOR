@@ -1,6 +1,6 @@
 "use client";
 
-import { DollarSign, Plus, X, Save } from "lucide-react";
+import { DollarSign, Plus, X, Save, Layers } from "lucide-react";
 import { useState, useActionState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,11 +14,13 @@ const initialState: PurchasePaymentActionState = {};
 
 export function PurchasePaymentModal({
   purchases,
+  suppliers = [],
   defaultPurchaseId,
   triggerLabel,
   compact = false,
 }: {
-  purchases: Array<{ id_compra: number; numero_compra: string; proveedor: string; saldo_pendiente: number }>;
+  purchases: Array<{ id_compra: number; id_proveedor?: number; numero_compra: string; proveedor: string; saldo_pendiente: number }>;
+  suppliers?: Array<{ id: number; nombre: string; saldo_disponible?: number }>;
   defaultPurchaseId?: number;
   triggerLabel?: string;
   compact?: boolean;
@@ -30,32 +32,46 @@ export function PurchasePaymentModal({
 
   const today = new Date().toISOString().split("T")[0];
 
+  const defaultPurchase = purchases.find((p) => p.id_compra === defaultPurchaseId);
+  const initialSupplierId = defaultPurchase?.id_proveedor || suppliers[0]?.id || 1;
+  const initialSupplierName = defaultPurchase?.proveedor || suppliers[0]?.nombre || "Distribuidora Nacional de Blancos & Edredones";
+
   const {
     register,
     handleSubmit,
     setValue,
+    watch,
     reset,
     formState: { errors },
   } = useForm<PurchasePaymentInput>({
     resolver: zodResolver(purchasePaymentSchema) as never,
     defaultValues: {
+      id_proveedor: initialSupplierId,
       id_compra: defaultPurchaseId || null,
-      proveedor: purchases[0]?.proveedor || "Distribuidora Nacional de Blancos & Edredones",
+      proveedor: initialSupplierName,
       fecha: today,
-      monto: 0,
+      monto: defaultPurchase ? defaultPurchase.saldo_pendiente : 0,
       forma_pago: "Transferencia",
       referencia: "",
       observaciones: "",
     },
   });
 
+  const selectedPurchaseId = watch("id_compra");
   const isSuccess = Boolean(state.success);
   const isOpen = open && !isSuccess;
 
   const pending = serverPending || clientPending;
 
   const handleOpen = () => {
-    if (defaultPurchaseId) setValue("id_compra", defaultPurchaseId);
+    if (defaultPurchaseId) {
+      setValue("id_compra", defaultPurchaseId);
+      if (defaultPurchase) {
+        setValue("id_proveedor", defaultPurchase.id_proveedor || 1);
+        setValue("proveedor", defaultPurchase.proveedor);
+        setValue("monto", defaultPurchase.saldo_pendiente);
+      }
+    }
     setOpen(true);
   };
 
@@ -75,7 +91,7 @@ export function PurchasePaymentModal({
     });
   });
 
-  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "+ Registrar depósito / abono");
+  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "Registrar depósito / abono");
 
   return (
     <>
@@ -101,7 +117,7 @@ export function PurchasePaymentModal({
                 </div>
                 <div>
                   <h3 className="font-bold text-lf-navy">Registrar Depósito / Abono a Proveedor</h3>
-                  <p className="text-xs text-lf-muted">Se descontará directamente del saldo total pendiente con proveedores.</p>
+                  <p className="text-xs text-lf-muted">Conciliación automática FIFO: se aplica a la compra más antigua pendiente.</p>
                 </div>
               </div>
               <button
@@ -117,30 +133,54 @@ export function PurchasePaymentModal({
               {state.error ? <Alert variant="danger">{state.error}</Alert> : null}
 
               {/* Proveedor */}
-              <label className="block space-y-1.5 text-sm font-medium">
-                <span>Proveedor</span>
-                <input
-                  {...register("proveedor")}
-                  placeholder="Distribuidora Nacional de Blancos & Edredones"
-                  defaultValue="Distribuidora Nacional de Blancos & Edredones"
-                  disabled={pending}
-                  className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
-                />
-              </label>
+              {suppliers.length > 1 ? (
+                <label className="block space-y-1.5 text-sm font-medium">
+                  <span>Proveedor</span>
+                  <select
+                    {...register("id_proveedor", {
+                      onChange: (e) => {
+                        const provId = Number(e.target.value);
+                        const p = suppliers.find((s) => s.id === provId);
+                        if (p) setValue("proveedor", p.nombre);
+                      },
+                    })}
+                    disabled={pending}
+                    className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+                  >
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nombre} {s.saldo_disponible ? `(Depósito disponible: $${Number(s.saldo_disponible).toFixed(2)})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="block space-y-1.5 text-sm font-medium">
+                  <span>Proveedor</span>
+                  <input
+                    {...register("proveedor")}
+                    placeholder="Distribuidora Nacional de Blancos & Edredones"
+                    defaultValue={initialSupplierName}
+                    disabled={pending}
+                    className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+                  />
+                  <input type="hidden" {...register("id_proveedor")} value={initialSupplierId} />
+                </label>
+              )}
 
-              {/* Compra específica (opcional) */}
+              {/* Compra específica de referencia (opcional) */}
               {purchases.length > 0 ? (
                 <label className="block space-y-1.5 text-sm font-medium">
-                  <span>Factura / Pedido asociado (Opcional)</span>
+                  <span>Factura / Pedido de referencia (Opcional)</span>
                   <select
                     {...register("id_compra")}
                     disabled={pending}
                     className="h-11 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
                   >
-                    <option value="">Depósito General a Proveedor (Sin vincular a factura específica)</option>
+                    <option value="">Depósito General (Aplica automáticamente a las compras más antiguas)</option>
                     {purchases.map((c) => (
                       <option key={c.id_compra} value={c.id_compra}>
-                        {c.numero_compra} - {c.proveedor}
+                        {c.numero_compra} - {c.proveedor} (Pendiente: ${c.saldo_pendiente.toFixed(2)})
                       </option>
                     ))}
                   </select>
@@ -207,6 +247,13 @@ export function PurchasePaymentModal({
                   className="w-full rounded-xl border bg-white p-3 text-sm outline-none focus:border-lf-terracotta"
                 />
               </label>
+
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 flex items-start gap-2">
+                <Layers size={16} className="mt-0.5 shrink-0 text-emerald-700" />
+                <span>
+                  <strong>Cruce FIFO Inteligente:</strong> El sistema aplicará este depósito automáticamente a la compra pendiente más antigua del proveedor. Si sobra saldo, quedará disponible para futuras compras.
+                </span>
+              </div>
 
               <div className="mt-6 flex justify-end gap-2 border-t pt-4">
                 <button

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const purchasePaymentSchema = z.object({
+  id_proveedor: z.coerce.number().int().optional().nullable(),
   id_compra: z.coerce.number().int().optional().nullable(),
   proveedor: z.string().trim().max(200).optional().nullable(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),

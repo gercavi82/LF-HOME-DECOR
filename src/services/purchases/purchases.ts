@@ -10,9 +10,14 @@ import {
   type PurchasesFilterParams,
 } from "@/src/lib/validation/purchases";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
+import {
+  reconcileSupplierPayments,
+  getSupplierAvailableDeposit,
+} from "@/src/services/purchases/reconcile-supplier-payments";
 
 export type PurchaseItem = {
   id_compra: number;
+  id_proveedor: number;
   numero_compra: string;
   fecha: string;
   proveedor: string;
@@ -26,13 +31,15 @@ export type PurchaseItem = {
   usuario?: string;
   total_pagado: number;
   saldo_pendiente: number;
-  estado_pago: "PAGADO" | "ABONO_PARCIAL" | "PENDIENTE";
+  estado_pago: "PAGADA" | "ABONO_PARCIAL" | "PENDIENTE";
 };
 
 export type PurchasesSummary = {
   total: number;
-  totalPagado: number;
-  totalPendiente: number;
+  totalPagado: number; // Total depósitos registrados
+  totalAplicado: number; // Total aplicado a facturas
+  depositosDisponibles: number; // Saldo de depósito sin aplicar
+  totalPendiente: number; // Saldo pendiente de compras
   unidades: number;
   count: number;
   promedio: number;
@@ -40,11 +47,26 @@ export type PurchasesSummary = {
 
 export type PurchasePaymentItem = {
   id_pago_compra: number;
-  id_compra: number;
+  id_proveedor: number;
+  id_compra: number | null;
   numero_compra: string;
   proveedor: string;
   fecha: string;
   monto: number;
+  monto_aplicado: number;
+  saldo_disponible: number;
+  forma_pago: string;
+  referencia: string | null;
+  observaciones: string | null;
+  registrador: string;
+};
+
+export type PurchasePaymentApplication = {
+  id_aplicacion: number;
+  id_pago_compra: number;
+  fecha_aplicacion: string;
+  fecha_pago: string;
+  monto_aplicado: number;
   forma_pago: string;
   referencia: string | null;
   observaciones: string | null;
@@ -53,18 +75,21 @@ export type PurchasePaymentItem = {
 
 type PurchaseRowRaw = {
   id_compra: number;
+  id_proveedor: number;
   numero_compra: string;
   fecha: Date | string;
   subtotal: number;
   iva: number;
   total: number;
+  total_abonado: number;
+  saldo_pendiente: number;
+  estado_pago: string;
   estado: string;
   observaciones: string | null;
   proveedor_nombre: string | null;
   usuario_nombre: string | null;
   unidades: number;
   producto_desc: string | null;
-  total_abonos: number;
 };
 
 export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
@@ -73,11 +98,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
   availableYears: string[];
   availableTypes: Array<{ id: number; nombre: string }>;
 }> {
-  await requireAnyPermission([
-    "COMPRA_VER",
-    "FINANZAS_VER",
-  ]);
-
+  await requireAnyPermission(["COMPRA_VER", "FINANZAS_VER"]);
   await ensureCustomTables().catch(() => null);
 
   const selectedYear = filters?.year?.trim() || "";
@@ -101,15 +122,19 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     ).catch(() => []);
     const availableTypes = (typeRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) }));
 
-    // 3. Query base de compras
+    // 3. Query base de compras leyendo directamente las columnas de liquidación
     let sql = `
       SELECT 
         c.id_compra,
+        c.id_proveedor,
         COALESCE(c.numero_compra, CONCAT('COM-', DATE_FORMAT(c.fecha, '%Y%m%d'), '-', c.id_compra)) AS numero_compra,
         DATE(c.fecha) AS fecha,
         c.subtotal AS subtotal,
         c.iva AS iva,
         c.total AS total,
+        COALESCE(c.total_abonado, 0) AS total_abonado,
+        COALESCE(c.saldo_pendiente, c.total) AS saldo_pendiente,
+        COALESCE(c.estado_pago, 'PENDIENTE') AS estado_pago,
         COALESCE(c.estado, 'REGISTRADA') AS estado,
         c.observaciones AS observaciones,
         COALESCE(p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor_nombre,
@@ -118,12 +143,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
           SELECT SUM(dc.cantidad)
           FROM detalle_compras dc
           WHERE dc.id_compra = c.id_compra
-        ), 0) AS unidades,
-        COALESCE((
-          SELECT SUM(pc.monto)
-          FROM pagos_compras pc
-          WHERE pc.id_compra = c.id_compra AND pc.activo = 1
-        ), 0) AS total_abonos
+        ), 0) AS unidades
       FROM compras c
       LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
       LEFT JOIN usuarios u ON u.id_usuario = c.id_usuario
@@ -213,23 +233,24 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
 
     const purchases: PurchaseItem[] = (rows ?? []).map((r) => {
       const total = Number(r.total) || 0;
-      const abonos = Number(r.total_abonos) || 0;
-      const saldo = Math.max(0, Number((total - abonos).toFixed(2)));
+      const abonos = Number(r.total_abonado) || 0;
+      const saldo = Number(r.saldo_pendiente) || Math.max(0, Number((total - abonos).toFixed(2)));
       const dateStr = typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10);
       const purchaseId = Number(r.id_compra);
 
       const itemsList = itemsByPurchaseMap.get(purchaseId) || [];
       const consolidatedDesc = itemsList.length > 0 ? itemsList.join(" | ") : (r.producto_desc || "Prendas textiles");
 
-      let estadoPago: "PAGADO" | "ABONO_PARCIAL" | "PENDIENTE" = "PENDIENTE";
-      if (saldo <= 0 && total > 0) {
-        estadoPago = "PAGADO";
+      let estadoPago: "PAGADA" | "ABONO_PARCIAL" | "PENDIENTE" = "PENDIENTE";
+      if (r.estado_pago === "PAGADA" || (saldo <= 0.005 && total > 0)) {
+        estadoPago = "PAGADA";
       } else if (abonos > 0) {
         estadoPago = "ABONO_PARCIAL";
       }
 
       return {
         id_compra: Number(r.id_compra),
+        id_proveedor: Number(r.id_proveedor || 1),
         numero_compra: r.numero_compra || `#${r.id_compra}`,
         fecha: dateStr,
         proveedor: r.proveedor_nombre ?? "Distribuidora Nacional",
@@ -247,21 +268,33 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       };
     });
 
-    // 5. Total de depósitos / abonos a proveedores
-    const totalAbonosRows = await query<{ total_pagos: number }>(
-      `SELECT COALESCE(SUM(monto), 0) AS total_pagos FROM pagos_compras WHERE activo = 1`
+    // 5. Totales consolidados de compras y depósitos de proveedores
+    const depositSummaryRows = await query<{
+      total_depositos: number;
+      total_aplicado: number;
+      total_disponible: number;
+    }>(
+      `SELECT 
+         COALESCE(SUM(monto), 0) AS total_depositos,
+         COALESCE(SUM(monto_aplicado), 0) AS total_aplicado,
+         COALESCE(SUM(saldo_disponible), 0) AS total_disponible
+       FROM pagos_compras 
+       WHERE activo = 1`
     ).catch(() => []);
-    const totalPagado = Number(totalAbonosRows?.[0]?.total_pagos || 0);
 
-    const total = purchases.reduce((sum, p) => sum + p.total, 0);
-    const totalPendiente = Math.max(0, Number((total - totalPagado).toFixed(2)));
+    const totalPagado = Number(depositSummaryRows?.[0]?.total_depositos || 0);
+    const totalAplicado = Number(depositSummaryRows?.[0]?.total_aplicado || 0);
+    const depositosDisponibles = Number(depositSummaryRows?.[0]?.total_disponible || 0);
+
+    const total = Number(purchases.reduce((sum, p) => sum + p.total, 0).toFixed(2));
+    const totalPendiente = Number(purchases.reduce((sum, p) => sum + p.saldo_pendiente, 0).toFixed(2));
     const unidades = purchases.reduce((sum, p) => sum + p.unidades, 0);
     const count = purchases.length;
     const promedio = count > 0 ? Number((total / count).toFixed(2)) : 0;
 
     return {
       purchases,
-      summary: { total, totalPagado, totalPendiente, unidades, count, promedio },
+      summary: { total, totalPagado, totalAplicado, depositosDisponibles, totalPendiente, unidades, count, promedio },
       availableYears,
       availableTypes,
     };
@@ -269,31 +302,34 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     console.error("listPurchases ERROR:", error);
     return {
       purchases: [],
-      summary: { total: 0, totalPagado: 0, totalPendiente: 0, unidades: 0, count: 0, promedio: 0 },
+      summary: { total: 0, totalPagado: 0, totalAplicado: 0, depositosDisponibles: 0, totalPendiente: 0, unidades: 0, count: 0, promedio: 0 },
       availableYears: [],
       availableTypes: [],
     };
   }
 }
 
-export async function listPurchasePayments(purchaseId?: number): Promise<PurchasePaymentItem[]> {
+export async function listPurchasePayments(purchaseId?: number, supplierId?: number): Promise<PurchasePaymentItem[]> {
   await requireAnyPermission(["COMPRA_VER", "INVENTARIO_VER", "FINANZAS_VER", "DASHBOARD_VER"]);
 
   let sql = `
     SELECT 
       pc.id_pago_compra,
+      COALESCE(pc.id_proveedor, c.id_proveedor, 1) AS id_proveedor,
       pc.id_compra,
-      COALESCE(c.numero_compra, 'Depósito a Proveedor') AS numero_compra,
+      COALESCE(c.numero_compra, 'Depósito General') AS numero_compra,
       COALESCE(pc.proveedor, p.nombre, 'Distribuidora Nacional de Blancos & Edredones') AS proveedor,
       pc.fecha,
       pc.monto,
+      COALESCE(pc.monto_aplicado, 0) AS monto_aplicado,
+      COALESCE(pc.saldo_disponible, pc.monto) AS saldo_disponible,
       pc.forma_pago,
       pc.referencia,
       pc.observaciones,
       CONCAT(u.nombres, ' ', u.apellidos) AS registrador
     FROM pagos_compras pc
     LEFT JOIN compras c ON c.id_compra = pc.id_compra
-    LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
+    LEFT JOIN proveedores p ON p.id_proveedor = COALESCE(pc.id_proveedor, c.id_proveedor)
     LEFT JOIN usuarios u ON u.id_usuario = pc.registrado_por
     WHERE pc.activo = 1
   `;
@@ -302,6 +338,9 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
   if (purchaseId && purchaseId > 0) {
     sql += ` AND pc.id_compra = ?`;
     params.push(purchaseId);
+  } else if (supplierId && supplierId > 0) {
+    sql += ` AND (pc.id_proveedor = ? OR c.id_proveedor = ?)`;
+    params.push(supplierId, supplierId);
   }
 
   sql += ` ORDER BY pc.fecha DESC, pc.id_pago_compra DESC LIMIT 100`;
@@ -309,11 +348,14 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
   try {
     const rows = await query<{
       id_pago_compra: number;
+      id_proveedor: number;
       id_compra: number | null;
       numero_compra: string;
       proveedor: string;
       fecha: Date | string;
       monto: number;
+      monto_aplicado: number;
+      saldo_disponible: number;
       forma_pago: string;
       referencia: string | null;
       observaciones: string | null;
@@ -322,11 +364,14 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
 
     return (rows ?? []).map((r) => ({
       id_pago_compra: Number(r.id_pago_compra),
-      id_compra: Number(r.id_compra || 0),
+      id_proveedor: Number(r.id_proveedor || 1),
+      id_compra: r.id_compra ? Number(r.id_compra) : null,
       numero_compra: r.numero_compra || "Depósito a Proveedor",
       proveedor: r.proveedor,
       fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
       monto: Number(r.monto) || 0,
+      monto_aplicado: Number(r.monto_aplicado) || 0,
+      saldo_disponible: Number(r.saldo_disponible) || 0,
       forma_pago: r.forma_pago || "Transferencia",
       referencia: r.referencia ?? null,
       observaciones: r.observaciones ?? null,
@@ -339,14 +384,21 @@ export async function listPurchasePayments(purchaseId?: number): Promise<Purchas
 }
 
 export async function getPurchaseCatalogs(): Promise<{
-  proveedores: Array<{ id: number; nombre: string; ruc_cedula: string }>;
+  proveedores: Array<{ id: number; nombre: string; ruc_cedula: string; saldo_disponible: number }>;
   variantes: Array<{ id_variante: number; descripcion: string; codigo_interno: string; precio_venta: number }>;
 }> {
   await requireAnyPermission(["COMPRA_VER", "COMPRA_CREAR", "INVENTARIO_VER"]);
 
   const [proveedores, variantes] = await Promise.all([
-    query<{ id_proveedor: number; nombre: string; ruc_cedula: string }>(
-      `SELECT id_proveedor, nombre, ruc_cedula FROM proveedores WHERE activo = 1 ORDER BY nombre ASC`
+    query<{ id_proveedor: number; nombre: string; ruc_cedula: string; saldo_disponible: number }>(
+      `SELECT 
+         p.id_proveedor, 
+         p.nombre, 
+         p.ruc_cedula,
+         COALESCE((SELECT SUM(saldo_disponible) FROM pagos_compras pc WHERE pc.id_proveedor = p.id_proveedor AND pc.activo = 1), 0) AS saldo_disponible
+       FROM proveedores p 
+       WHERE p.activo = 1 
+       ORDER BY p.nombre ASC`
     ).catch(() => []),
     query<{ id_variante: number; descripcion: string; codigo_interno: string; precio_venta: number }>(
       `SELECT vp.id_variante, prod.descripcion, vp.codigo_interno, vp.precio_venta
@@ -362,6 +414,7 @@ export async function getPurchaseCatalogs(): Promise<{
       id: Number(p.id_proveedor),
       nombre: p.nombre,
       ruc_cedula: p.ruc_cedula,
+      saldo_disponible: Number(p.saldo_disponible) || 0,
     })),
     variantes: (variantes ?? []).map((v) => ({
       id_variante: Number(v.id_variante),
@@ -381,6 +434,9 @@ export type PurchaseDetailRecord = {
   subtotal: number;
   iva: number;
   total: number;
+  total_abonado: number;
+  saldo_pendiente: number;
+  estado_pago: "PAGADA" | "ABONO_PARCIAL" | "PENDIENTE";
   observaciones: string | null;
   items: Array<{
     id_detalle_compra?: number;
@@ -393,12 +449,13 @@ export type PurchaseDetailRecord = {
     iva: number;
     total: number;
   }>;
+  abonos_aplicados: PurchasePaymentApplication[];
 };
 
 export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord | null> {
   await requireAnyPermission(["COMPRA_VER", "COMPRA_EDITAR", "INVENTARIO_VER"]);
 
-  const [compraRows, itemRows] = await Promise.all([
+  const [compraRows, itemRows, abonosRows] = await Promise.all([
     query<{
       id_compra: number;
       numero_compra: string;
@@ -408,12 +465,19 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
       subtotal: number;
       iva: number;
       total: number;
+      total_abonado: number;
+      saldo_pendiente: number;
+      estado_pago: string;
       observaciones: string | null;
     }>(
       `SELECT 
          c.id_compra, c.numero_compra, c.id_proveedor, 
          COALESCE(p.nombre, 'Distribuidora Nacional de Blancos') AS proveedor_nombre,
-         c.fecha, c.subtotal, c.iva, c.total, c.observaciones
+         c.fecha, c.subtotal, c.iva, c.total,
+         COALESCE(c.total_abonado, 0) AS total_abonado,
+         COALESCE(c.saldo_pendiente, c.total) AS saldo_pendiente,
+         COALESCE(c.estado_pago, 'PENDIENTE') AS estado_pago,
+         c.observaciones
        FROM compras c
        LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor
        WHERE c.id_compra = ?`,
@@ -438,10 +502,49 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
        WHERE dc.id_compra = ?`,
       [id]
     ).catch(() => []),
+    query<{
+      id_aplicacion: number;
+      id_pago_cuenta: number;
+      fecha_aplicacion: Date | string;
+      fecha_pago: Date | string;
+      monto_aplicado: number;
+      forma_pago: string;
+      referencia: string | null;
+      observaciones: string | null;
+      registrador: string | null;
+    }>(
+      `SELECT 
+         apa.id_aplicacion,
+         apa.id_pago_cuenta,
+         apa.fecha_aplicacion,
+         pc.fecha AS fecha_pago,
+         apa.monto_aplicado,
+         pc.forma_pago,
+         pc.referencia,
+         pc.observaciones,
+         CONCAT(u.nombres, ' ', u.apellidos) AS registrador
+       FROM aplicaciones_abonos_proveedor apa
+       JOIN pagos_compras pc ON pc.id_pago_compra = apa.id_pago_cuenta
+       LEFT JOIN usuarios u ON u.id_usuario = apa.creado_por
+       WHERE apa.id_compra = ? AND apa.activo = 1
+       ORDER BY pc.fecha ASC, apa.id_aplicacion ASC`,
+      [id]
+    ).catch(() => []),
   ]);
 
   const compra = compraRows?.[0];
   if (!compra) return null;
+
+  const total = Number(compra.total) || 0;
+  const totalAbonado = Number(compra.total_abonado) || 0;
+  const saldoPendiente = Number(compra.saldo_pendiente) || Math.max(0, Number((total - totalAbonado).toFixed(2)));
+
+  let estadoPago: "PAGADA" | "ABONO_PARCIAL" | "PENDIENTE" = "PENDIENTE";
+  if (compra.estado_pago === "PAGADA" || (saldoPendiente <= 0.005 && total > 0)) {
+    estadoPago = "PAGADA";
+  } else if (totalAbonado > 0) {
+    estadoPago = "ABONO_PARCIAL";
+  }
 
   return {
     id_compra: Number(compra.id_compra),
@@ -451,12 +554,15 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
     fecha: typeof compra.fecha === "string" ? compra.fecha.slice(0, 10) : new Date(compra.fecha).toISOString().slice(0, 10),
     subtotal: Number(compra.subtotal) || 0,
     iva: Number(compra.iva) || 0,
-    total: Number(compra.total) || 0,
+    total,
+    total_abonado: totalAbonado,
+    saldo_pendiente: saldoPendiente,
+    estado_pago: estadoPago,
     observaciones: compra.observaciones ?? null,
     items: (itemRows ?? []).map((it) => {
       const subtotal = Number(it.subtotal) || 0;
       const iva = Number(it.iva) || 0;
-      const total = Number(it.total) || 0;
+      const itTotal = Number(it.total) || 0;
       const pctIva = subtotal > 0 ? Number(((iva / subtotal) * 100).toFixed(0)) : 15;
 
       return {
@@ -468,15 +574,29 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
         porcentaje_iva: pctIva,
         subtotal,
         iva,
-        total,
+        total: itTotal,
       };
     }),
+    abonos_aplicados: (abonosRows ?? []).map((ab) => ({
+      id_aplicacion: Number(ab.id_aplicacion),
+      id_pago_compra: Number(ab.id_pago_cuenta),
+      fecha_aplicacion: typeof ab.fecha_aplicacion === "string" ? ab.fecha_aplicacion.slice(0, 19) : new Date(ab.fecha_aplicacion).toISOString().slice(0, 19),
+      fecha_pago: typeof ab.fecha_pago === "string" ? ab.fecha_pago.slice(0, 10) : new Date(ab.fecha_pago).toISOString().slice(0, 10),
+      monto_aplicado: Number(ab.monto_aplicado) || 0,
+      forma_pago: ab.forma_pago || "Transferencia",
+      referencia: ab.referencia ?? null,
+      observaciones: ab.observaciones ?? null,
+      registrador: ab.registrador || "Administración",
+    })),
   };
 }
 
-export async function createPurchase(input: PurchaseCreateInput): Promise<number> {
+export async function createPurchase(input: PurchaseCreateInput): Promise<{ idCompra: number; autoAbonoAplicado: number }> {
   const context = await requirePermission("COMPRA_CREAR");
   const parsed = purchaseCreateSchema.parse(input);
+
+  // Verificar depósito disponible previo del proveedor
+  const availableBefore = await getSupplierAvailableDeposit(parsed.id_proveedor);
 
   // Calcular subtotales, iva y total
   let totalSubtotal = 0;
@@ -504,8 +624,8 @@ export async function createPurchase(input: PurchaseCreateInput): Promise<number
 
   // Insertar cabecera de compra
   const result = await execute(
-    `INSERT INTO compras (id_proveedor, id_local, id_usuario, numero_compra, fecha, subtotal, iva, total, observaciones, estado)
-     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA')`,
+    `INSERT INTO compras (id_proveedor, id_local, id_usuario, numero_compra, fecha, subtotal, iva, total, saldo_pendiente, observaciones, estado, estado_pago)
+     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA', 'PENDIENTE')`,
     [
       parsed.id_proveedor,
       context.id_usuario,
@@ -514,11 +634,12 @@ export async function createPurchase(input: PurchaseCreateInput): Promise<number
       totalSubtotal,
       totalIva,
       totalGeneral,
+      totalGeneral,
       parsed.observaciones || null,
     ]
   );
 
-  const idCompra = result.insertId;
+  const idCompra = Number(result.insertId);
 
   // Insertar cada item en detalle_compras y actualizar stock
   for (const it of processedItems) {
@@ -544,7 +665,13 @@ export async function createPurchase(input: PurchaseCreateInput): Promise<number
     ).catch(() => null);
   }
 
-  return idCompra;
+  // Ejecutar conciliación automática FIFO del proveedor
+  await reconcileSupplierPayments(parsed.id_proveedor, context.id_usuario);
+
+  // Calcular abono automático aplicado a esta nueva compra
+  const autoAbonoAplicado = Math.min(availableBefore, totalGeneral);
+
+  return { idCompra, autoAbonoAplicado };
 }
 
 export async function updatePurchase(id: number, input: PurchaseCreateInput): Promise<void> {
@@ -639,6 +766,9 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
       [it.id_variante, context.id_usuario, it.cantidad, it.cantidad, `Ajuste por edición de compra ${parsed.numero_compra}`]
     ).catch(() => null);
   }
+
+  // Reconciliar compras del proveedor
+  await reconcileSupplierPayments(parsed.id_proveedor, context.id_usuario);
 }
 
 export async function registerPurchasePayment(input: PurchasePaymentInput) {
@@ -648,15 +778,43 @@ export async function registerPurchasePayment(input: PurchasePaymentInput) {
   await ensureCustomTables().catch(() => null);
 
   const purchaseId = parsed.id_compra && Number(parsed.id_compra) > 0 ? Number(parsed.id_compra) : null;
-  const proveedorNombre = parsed.proveedor?.trim() || "Distribuidora Nacional de Blancos & Edredones";
+  let idProveedor = parsed.id_proveedor ? Number(parsed.id_proveedor) : null;
 
-  return execute(
-    `INSERT INTO pagos_compras (id_compra, proveedor, fecha, monto, forma_pago, referencia, observaciones, registrado_por, activo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  // Si no viene id_proveedor pero viene id_compra, buscar el proveedor de la compra
+  if (!idProveedor && purchaseId) {
+    const pRow = await query<{ id_proveedor: number; proveedor_nombre: string }>(
+      `SELECT c.id_proveedor, COALESCE(p.nombre, 'Distribuidora') AS proveedor_nombre 
+       FROM compras c 
+       LEFT JOIN proveedores p ON p.id_proveedor = c.id_proveedor 
+       WHERE c.id_compra = ? LIMIT 1`,
+      [purchaseId]
+    );
+    if (pRow?.[0]?.id_proveedor) {
+      idProveedor = Number(pRow[0].id_proveedor);
+    }
+  }
+
+  if (!idProveedor || idProveedor <= 0) {
+    idProveedor = 1; // Proveedor Matriz por defecto
+  }
+
+  const provRow = await query<{ nombre: string }>(
+    `SELECT nombre FROM proveedores WHERE id_proveedor = ? LIMIT 1`,
+    [idProveedor]
+  );
+  const proveedorNombre = provRow?.[0]?.nombre || parsed.proveedor?.trim() || "Distribuidora Nacional de Blancos & Edredones";
+
+  // 1. Insertar depósito del proveedor
+  const result = await execute(
+    `INSERT INTO pagos_compras (
+       id_proveedor, id_compra, proveedor, fecha, monto, monto_aplicado, saldo_disponible, forma_pago, referencia, observaciones, registrado_por, activo
+     ) VALUES (?, ?, ?, ?, ?, 0.00, ?, ?, ?, ?, ?, 1)`,
     [
+      idProveedor,
       purchaseId,
       proveedorNombre,
       parsed.fecha,
+      parsed.monto,
       parsed.monto,
       parsed.forma_pago,
       parsed.referencia || null,
@@ -664,4 +822,12 @@ export async function registerPurchasePayment(input: PurchasePaymentInput) {
       context.id_usuario,
     ]
   );
+
+  // 2. Ejecutar conciliación automática FIFO en compras del proveedor
+  const reconciliation = await reconcileSupplierPayments(idProveedor, context.id_usuario);
+
+  return {
+    id_pago_compra: Number(result.insertId),
+    reconciliation,
+  };
 }

@@ -83,9 +83,45 @@ export async function ensureCustomTables() {
       ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`codigo\` = VALUES(\`codigo\`), \`requiere_referencia\` = VALUES(\`requiere_referencia\`), \`activo\` = 1;
     `).catch(() => null);
 
-    // Ajustar pagos_compras para soportar pagos/depósitos directos y sin forzar id_compra
+    // Ajustar pagos_compras para soportar depósitos con id_proveedor, monto_aplicado y saldo_disponible
     await execute(`ALTER TABLE \`pagos_compras\` MODIFY \`id_compra\` BIGINT NULL;`).catch(() => null);
-    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN IF NOT EXISTS \`proveedor\` VARCHAR(200) NULL;`).catch(() => null);
+    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN \`proveedor\` VARCHAR(200) NULL;`).catch(() => null);
+    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN \`id_proveedor\` INT NULL DEFAULT 1;`).catch(() => null);
+    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN \`monto_aplicado\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;`).catch(() => null);
+    await execute(`ALTER TABLE \`pagos_compras\` ADD COLUMN \`saldo_disponible\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;`).catch(() => null);
+
+    // Asegurar campos de abono y estado de pago en compras
+    await execute(`ALTER TABLE \`compras\` ADD COLUMN \`total_abonado\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;`).catch(() => null);
+    await execute(`ALTER TABLE \`compras\` ADD COLUMN \`saldo_pendiente\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;`).catch(() => null);
+    await execute(`ALTER TABLE \`compras\` ADD COLUMN \`estado_pago\` VARCHAR(30) NOT NULL DEFAULT 'PENDIENTE';`).catch(() => null);
+
+    // Asegurar tabla aplicaciones_abonos_proveedor (detalle N:M de conciliación FIFO)
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`aplicaciones_abonos_proveedor\` (
+        \`id_aplicacion\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        \`id_pago_cuenta\` BIGINT NOT NULL,
+        \`id_compra\` BIGINT NOT NULL,
+        \`id_proveedor\` INT NOT NULL,
+        \`monto_aplicado\` DECIMAL(12,2) NOT NULL,
+        \`fecha_aplicacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`activo\` TINYINT(1) NOT NULL DEFAULT 1,
+        \`creado_por\` BIGINT NULL,
+        INDEX \`idx_app_pago\` (\`id_pago_cuenta\`),
+        INDEX \`idx_app_compra\` (\`id_compra\`),
+        INDEX \`idx_app_prov\` (\`id_proveedor\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Sincronizar id_proveedor en pagos_compras desde compras si es null
+    await execute(`
+      UPDATE \`pagos_compras\` pc
+      JOIN \`compras\` c ON c.id_compra = pc.id_compra
+      SET pc.id_proveedor = c.id_proveedor
+      WHERE pc.id_proveedor IS NULL OR pc.id_proveedor = 0;
+    `).catch(() => null);
+    await execute(`
+      UPDATE \`pagos_compras\` SET \`id_proveedor\` = 1 WHERE \`id_proveedor\` IS NULL OR \`id_proveedor\` = 0;
+    `).catch(() => null);
 
     // Asegurar Cliente Consumidor Final
     await execute(`
@@ -347,6 +383,14 @@ export async function ensureCustomTables() {
           WHERE dv.id_venta = v.id_venta
         ), 0.00)) * 0.40, 2);
     `).catch(() => null);
+
+    // Ejecutar conciliación FIFO de abonos y compras a proveedores
+    try {
+      const { reconcileAllSuppliers } = await import("@/src/services/purchases/reconcile-supplier-payments");
+      await reconcileAllSuppliers();
+    } catch {
+      // Ignorar en entornos sin BD inicializada
+    }
 
     tablesEnsured = true;
   } catch (error) {

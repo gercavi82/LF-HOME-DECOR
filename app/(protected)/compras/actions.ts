@@ -50,8 +50,10 @@ export async function createPurchaseAction(
     };
   }
 
+  let autoAbono = 0;
   try {
-    await createPurchase(parsed.data);
+    const res = await createPurchase(parsed.data);
+    autoAbono = res.autoAbonoAplicado || 0;
   } catch (error) {
     console.error("createPurchaseAction ERROR:", error);
     return { error: error instanceof Error ? error.message : "No fue posible registrar la compra." };
@@ -60,7 +62,7 @@ export async function createPurchaseAction(
   revalidatePath("/compras");
   revalidatePath("/inventario");
   revalidatePath("/reportes");
-  redirect("/compras?created=1");
+  redirect(`/compras?created=1${autoAbono > 0 ? `&auto_abono=${autoAbono.toFixed(2)}` : ""}`);
 }
 
 export async function updatePurchaseAction(
@@ -120,7 +122,8 @@ export async function createPurchasePaymentAction(
   await requirePermission("COMPRA_CREAR");
 
   const raw = {
-    id_compra: formData.get("id_compra")?.toString() || "",
+    id_proveedor: formData.get("id_proveedor")?.toString() || undefined,
+    id_compra: formData.get("id_compra")?.toString() || undefined,
     fecha: formData.get("fecha")?.toString() || "",
     monto: formData.get("monto")?.toString() || "",
     forma_pago: formData.get("forma_pago")?.toString() || "Transferencia",
