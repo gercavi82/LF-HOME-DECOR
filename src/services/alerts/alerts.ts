@@ -93,6 +93,42 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     }
 
     // 2. Alertas de Pagos a Proveedores (Compras con saldo pendiente)
+    // 2.1 Alerta Global: Costo Total de Compras vs Pagos Realizados (Diferencia > $500)
+    const globalPurchaseTotals = await query<{ total_compras: number; total_abonos: number }>(
+      `SELECT 
+         COALESCE(SUM(c.total), 0) AS total_compras,
+         (
+           SELECT COALESCE(SUM(pc.monto), 0) 
+           FROM pagos_compras pc 
+           WHERE pc.activo = 1
+         ) AS total_abonos
+       FROM compras c
+       WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')`
+    ).catch(() => []);
+
+    if (globalPurchaseTotals && globalPurchaseTotals.length > 0) {
+      const totCompras = Number(globalPurchaseTotals[0].total_compras) || 0;
+      const totAbonos = Number(globalPurchaseTotals[0].total_abonos) || 0;
+      const diffGlobal = Math.max(0, Number((totCompras - totAbonos).toFixed(2)));
+
+      if (diffGlobal > 500) {
+        alerts.unshift({
+          id: "pago-diferencia-global-500",
+          category: "PAGOS",
+          title: "Alerta: Saldo pendiente a proveedores supera $500.00",
+          subtitle: "Costo Total Compras vs. Total Pagos Realizados",
+          detail: `Costo total compras: $${totCompras.toFixed(2)} vs. Pagos/Depósitos: $${totAbonos.toFixed(2)}. Saldo por liquidar: $${diffGlobal.toFixed(2)} (supera el límite permitido de $500.00).`,
+          badgeLabel: "Saldo > $500",
+          severity: "danger",
+          href: "/compras",
+          actionLabel: "Ver compras y pagos",
+          type: "OVERDUE_PAYMENT",
+          valuePrimary: `$${diffGlobal.toFixed(2)}`,
+          valueSecondary: "Límite: $500",
+        });
+      }
+    }
+
     const purchaseRows = await query<{
       id_compra: number;
       numero_compra: string;
