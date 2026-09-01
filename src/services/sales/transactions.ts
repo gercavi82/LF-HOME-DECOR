@@ -65,6 +65,17 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
   }
 
   return transaction(async (conn) => {
+    // 0. Obtener porcentajes de comisión de parámetros_sistema
+    const [paramRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT codigo, valor FROM parametros_sistema WHERE codigo IN ('COMISION_ASESOR', 'COMISION_LOCAL') AND activo = 1`
+    );
+    const paramMap = new Map<string, number>();
+    for (const r of (paramRows || []) as { codigo: string; valor: string }[]) {
+      paramMap.set(r.codigo, Number(r.valor));
+    }
+    const pctAsesor = paramMap.get("COMISION_ASESOR") ?? 60;
+    const pctLocal = paramMap.get("COMISION_LOCAL") ?? 40;
+
     // 1. Validar variantes y calcular total bruto
     let totalBruto = 0;
     let sumaDescuentosItems = 0;
@@ -86,7 +97,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
                   JOIN compras comp ON comp.id_compra = dc.id_compra 
                   WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
                   ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC LIMIT 1
-                ), ROUND(vp.precio_venta * 0.60, 2)) AS costo_unitario
+                ), 0.00) AS costo_unitario
          FROM variantes_producto vp
          JOIN productos p ON p.id_producto = vp.id_producto
          WHERE vp.id_variante = ? AND vp.activo = 1 AND p.activo = 1`,
@@ -153,7 +164,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       throw new Error(`La suma de pagos ($${pagoTotal.toFixed(2)}) no coincide con el total de la venta ($${totalVenta.toFixed(2)}).`);
     }
 
-    // 3. Calcular subtotales e impuestos por línea
+    // 3. Calcular subtotales, impuestos, costos y utilidades por línea
     let subtotalGeneral = 0;
     let ivaGeneral = 0;
     let descuentoAsignado = 0;
@@ -176,6 +187,8 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       const lineaTotal = Math.max(0, Math.round((lineaBruta - lineaDescuento) * 100) / 100);
       const lineaSubtotal = Math.round((lineaTotal / (1 + v.porcentaje_iva / 100)) * 100) / 100;
       const lineaIva = Math.round((lineaTotal - lineaSubtotal) * 100) / 100;
+      const lineaCostoTotal = Math.round(v.costo_unitario * v.cantidad * 100) / 100;
+      const lineaUtilidad = Math.max(0, Math.round((lineaTotal - lineaCostoTotal) * 100) / 100);
 
       subtotalGeneral += lineaSubtotal;
       ivaGeneral += lineaIva;
@@ -186,6 +199,8 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         subtotal: lineaSubtotal,
         iva: lineaIva,
         total: lineaTotal,
+        costo_total: lineaCostoTotal,
+        utilidad: lineaUtilidad,
       };
     });
 
@@ -194,6 +209,12 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     if (Math.round((subtotalGeneral + ivaGeneral) * 100) / 100 !== totalVenta) {
       ivaGeneral = Math.round((totalVenta - subtotalGeneral) * 100) / 100;
     }
+
+    // Totales calculados de la venta (fuente única de verdad)
+    const totalCostoVenta = Math.round(calculatedLines.reduce((sum, l) => sum + l.costo_total, 0) * 100) / 100;
+    const utilidadVenta = Math.max(0, Math.round((totalVenta - totalCostoVenta) * 100) / 100);
+    const comisionAsesor = Math.round(utilidadVenta * (pctAsesor / 100) * 100) / 100;
+    const comisionLocal = Math.round(utilidadVenta * (pctLocal / 100) * 100) / 100;
 
     // 4. Generar número de venta e insertar cabecera
     const dateStr = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
@@ -224,9 +245,13 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
          descuento,
          iva,
          total,
+         costo_total,
+         utilidad,
+         comision_asesor,
+         comision_local,
          observaciones,
          estado
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA')`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA')`,
       [
         numeroVenta,
         parsed.id_local || 1,
@@ -238,6 +263,10 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         descuentoTotal,
         ivaGeneral,
         totalVenta,
+        totalCostoVenta,
+        utilidadVenta,
+        comisionAsesor,
+        comisionLocal,
         parsed.observaciones?.trim() || null,
       ]
     );
@@ -257,8 +286,10 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
            subtotal,
            iva,
            total,
-           costo_unitario
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           costo_unitario,
+           costo_total,
+           utilidad
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           saleId,
           line.id_variante,
@@ -270,6 +301,8 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
           line.iva,
           line.total,
           line.costo_unitario || 0,
+          line.costo_total || 0,
+          line.utilidad || 0,
         ]
       );
 

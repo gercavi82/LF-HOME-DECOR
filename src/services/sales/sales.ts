@@ -172,31 +172,18 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       ch.nombre AS canal_nombre,
       CONCAT(u.nombres, ' ', u.apellidos) AS vendedor_nombre,
       v.total,
+      v.costo_total,
+      v.utilidad,
+      v.comision_asesor,
+      v.comision_local,
       v.observaciones,
       v.estado,
-      COALESCE(SUM(d.cantidad), 1) AS unidades,
-      COALESCE(SUM(
-        COALESCE(
-          NULLIF(d.costo_unitario, 0),
-          NULLIF(vp.costo_unitario, 0),
-          (
-            SELECT ROUND(dc.total / dc.cantidad, 2) 
-            FROM detalle_compras dc 
-            JOIN compras comp ON comp.id_compra = dc.id_compra 
-            WHERE dc.id_variante = d.id_variante AND UPPER(COALESCE(comp.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-            ORDER BY comp.fecha DESC, dc.id_detalle_compra DESC 
-            LIMIT 1
-          ),
-          ROUND(d.precio_unitario * 0.60, 2)
-        ) * d.cantidad
-      ), 0) AS total_costo
+      COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 1) AS unidades
     FROM ventas v
     JOIN locales l ON l.id_local = v.id_local
     LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
     JOIN canales_venta ch ON ch.id_canal = v.id_canal
     JOIN usuarios u ON u.id_usuario = v.id_usuario
-    LEFT JOIN detalle_ventas d ON d.id_venta = v.id_venta
-    LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
   `;
 
   const whereClauses: string[] = [];
@@ -232,7 +219,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     sql += ` WHERE ` + whereClauses.join(" AND ");
   }
 
-  sql += ` GROUP BY v.id_venta ORDER BY v.fecha DESC LIMIT 150`;
+  sql += ` ORDER BY v.fecha DESC LIMIT 150`;
 
   try {
     let expenseSql = `SELECT COALESCE(SUM(monto), 0) AS total_gastos FROM gastos WHERE activo = 1`;
@@ -247,7 +234,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     }
 
     const [rows, advisorRows, localRows, expenseRows] = await Promise.all([
-      query<SaleListRowRaw & { total_costo?: number }>(sql, params),
+      query<SaleListRowRaw & { costo_total: number; utilidad: number; comision_asesor: number; comision_local: number }>(sql, params),
       query<{ id: number; nombre: string }>(
         `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
       ),
@@ -259,30 +246,22 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
 
     const totalGastos = Number(expenseRows?.[0]?.total_gastos) || 0;
 
-    const mapped: SaleListItem[] = (rows ?? []).map((sale) => {
-      const total = Number(sale.total) || 0;
-      const costo = Number((sale as { total_costo?: number }).total_costo) || 0;
-      const utilidad = Math.max(0, Number((total - costo).toFixed(2)));
-      const comisionAsesor = Number((utilidad * 0.60).toFixed(2));
-      const comisionLocal = Number((utilidad * 0.40).toFixed(2));
-
-      return {
-        id_venta: Number(sale.id_venta),
-        numero_venta: sale.numero_venta || `#${sale.id_venta}`,
-        fecha: String(sale.fecha),
-        local: sale.local_nombre ?? "Local",
-        cliente: sale.cliente_nombre ?? "Consumidor final",
-        canal: sale.canal_nombre ?? "Canal",
-        vendedor: sale.vendedor_nombre ?? "Usuario",
-        total,
-        utilidad,
-        comision_asesor: comisionAsesor,
-        comision_local: comisionLocal,
-        unidades: Number(sale.unidades) || 1,
-        observaciones: sale.observaciones,
-        estado: sale.estado,
-      };
-    });
+    const mapped: SaleListItem[] = (rows ?? []).map((sale) => ({
+      id_venta: Number(sale.id_venta),
+      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+      fecha: String(sale.fecha),
+      local: sale.local_nombre ?? "Local",
+      cliente: sale.cliente_nombre ?? "Consumidor final",
+      canal: sale.canal_nombre ?? "Canal",
+      vendedor: sale.vendedor_nombre ?? "Usuario",
+      total: Number(sale.total) || 0,
+      utilidad: Number(sale.utilidad) || 0,
+      comision_asesor: Number(sale.comision_asesor) || 0,
+      comision_local: Number(sale.comision_local) || 0,
+      unidades: Number(sale.unidades) || 1,
+      observaciones: sale.observaciones,
+      estado: sale.estado,
+    }));
 
     const totalComisionLocal = Number(mapped.reduce((sum, s) => sum + s.comision_local, 0).toFixed(2));
     const saldoComisionLocal = Number((totalComisionLocal - totalGastos).toFixed(2));

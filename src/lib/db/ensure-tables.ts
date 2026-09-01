@@ -237,13 +237,42 @@ export async function ensureCustomTables() {
       WHERE p.codigo = 'ASESOR' AND perm.activo = 1;
     `).catch(() => null);
 
-    // Asegurar columna costo_unitario en variantes_producto y detalle_ventas
+    // Asegurar parámetros del sistema para comisiones (60/40)
+    await execute(`
+      INSERT INTO \`parametros_sistema\` (\`codigo\`, \`nombre\`, \`valor\`, \`descripcion\`, \`activo\`) VALUES
+      ('COMISION_ASESOR', 'Porcentaje Comisión Asesor', '60', 'Porcentaje de utilidad neta para el asesor comercial', 1),
+      ('COMISION_LOCAL', 'Porcentaje Comisión Local', '40', 'Porcentaje de utilidad neta para el local comercial', 1)
+      ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
+    `).catch(() => null);
+
+    // Asegurar columnas en variantes_producto
     await execute(`
       ALTER TABLE \`variantes_producto\` ADD COLUMN \`costo_unitario\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
     `).catch(() => null);
 
+    // Asegurar columnas en detalle_ventas
     await execute(`
       ALTER TABLE \`detalle_ventas\` ADD COLUMN \`costo_unitario\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+    await execute(`
+      ALTER TABLE \`detalle_ventas\` ADD COLUMN \`costo_total\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+    await execute(`
+      ALTER TABLE \`detalle_ventas\` ADD COLUMN \`utilidad\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+
+    // Asegurar columnas en ventas (Persistencia única y fuente de verdad)
+    await execute(`
+      ALTER TABLE \`ventas\` ADD COLUMN \`costo_total\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+    await execute(`
+      ALTER TABLE \`ventas\` ADD COLUMN \`utilidad\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+    await execute(`
+      ALTER TABLE \`ventas\` ADD COLUMN \`comision_asesor\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
+    `).catch(() => null);
+    await execute(`
+      ALTER TABLE \`ventas\` ADD COLUMN \`comision_local\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
     `).catch(() => null);
 
     // Poblar costo_unitario en variantes_producto con base en compras reales (precio de compra con IVA incluido)
@@ -277,18 +306,48 @@ export async function ensureCustomTables() {
           WHEN vp.id_variante = 16 THEN 11.00
           WHEN vp.id_variante = 17 THEN 20.00
           WHEN vp.id_variante = 18 THEN 24.00
-          ELSE ROUND(vp.precio_venta * 0.60, 2)
+          ELSE 0.00
         END
       )
       WHERE vp.costo_unitario = 0.00 OR vp.costo_unitario IS NULL;
     `).catch(() => null);
 
-    // Actualizar detalle_ventas existentes con el costo_unitario de la variante
+    // Actualizar detalle_ventas existentes con costo_unitario, costo_total y utilidad
     await execute(`
       UPDATE \`detalle_ventas\` dv
       JOIN \`variantes_producto\` vp ON vp.id_variante = dv.id_variante
-      SET dv.costo_unitario = vp.costo_unitario
-      WHERE dv.costo_unitario = 0.00 OR dv.costo_unitario IS NULL;
+      SET 
+        dv.costo_unitario = CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END,
+        dv.costo_total = ROUND(CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END * dv.cantidad, 2),
+        dv.utilidad = GREATEST(0, dv.total - ROUND(CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END * dv.cantidad, 2))
+      WHERE dv.costo_total = 0.00 OR dv.costo_unitario = 0.00 OR dv.utilidad = 0.00;
+    `).catch(() => null);
+
+    // Actualizar ventas existentes con costo_total, utilidad, comision_asesor (60%) y comision_local (40%)
+    await execute(`
+      UPDATE \`ventas\` v
+      SET 
+        v.costo_total = COALESCE((
+          SELECT SUM(dv.costo_total)
+          FROM detalle_ventas dv
+          WHERE dv.id_venta = v.id_venta
+        ), 0.00),
+        v.utilidad = GREATEST(0, v.total - COALESCE((
+          SELECT SUM(dv.costo_total)
+          FROM detalle_ventas dv
+          WHERE dv.id_venta = v.id_venta
+        ), 0.00)),
+        v.comision_asesor = ROUND(GREATEST(0, v.total - COALESCE((
+          SELECT SUM(dv.costo_total)
+          FROM detalle_ventas dv
+          WHERE dv.id_venta = v.id_venta
+        ), 0.00)) * 0.60, 2),
+        v.comision_local = ROUND(GREATEST(0, v.total - COALESCE((
+          SELECT SUM(dv.costo_total)
+          FROM detalle_ventas dv
+          WHERE dv.id_venta = v.id_venta
+        ), 0.00)) * 0.40, 2)
+      WHERE v.comision_asesor = 0.00 AND v.total > 0;
     `).catch(() => null);
 
     tablesEnsured = true;
