@@ -653,3 +653,65 @@ export async function setProductStatus(id: number, activo: boolean): Promise<voi
     );
   });
 }
+
+export type ProductExportRow = {
+  id_producto: number;
+  codigo_interno: string;
+  codigo_gs1: string;
+  descripcion: string;
+  categoria: string;
+  tipo: string;
+  tamano: string;
+  marca: string;
+  material: string;
+  stock_total: number;
+  costo_compra: number;
+  precio_venta: number;
+  porcentaje_iva: number;
+  margen_estimado: number;
+  porcentaje_margen: number;
+  estado: string;
+};
+
+export async function getProductsForExport(): Promise<ProductExportRow[]> {
+  await requirePermission("PRODUCTO_VER");
+
+  const sql = `
+    SELECT 
+      p.id_producto,
+      COALESCE(vp.codigo_interno, '') AS codigo_interno,
+      COALESCE(vp.codigo_gs1, '') AS codigo_gs1,
+      p.descripcion,
+      COALESCE(c.nombre, '—') AS categoria,
+      COALESCE(tp.nombre, '—') AS tipo,
+      COALESCE(t.nombre, '—') AS tamano,
+      COALESCE(m.nombre, '—') AS marca,
+      COALESCE(mat.nombre, '—') AS material,
+      COALESCE((
+        SELECT SUM(sp.cantidad) 
+        FROM stock_producto sp 
+        WHERE sp.id_variante = vp.id_variante
+      ), 0) AS stock_total,
+      COALESCE(vp.costo_unitario, 0) AS costo_compra,
+      vp.precio_venta AS precio_venta,
+      vp.porcentaje_iva,
+      (vp.precio_venta - COALESCE(vp.costo_unitario, 0)) AS margen_estimado,
+      CASE 
+        WHEN vp.precio_venta > 0 THEN ROUND(((vp.precio_venta - COALESCE(vp.costo_unitario, 0)) / vp.precio_venta) * 100, 1)
+        ELSE 0
+      END AS porcentaje_margen,
+      CASE WHEN (p.activo = 1 AND vp.activo = 1) THEN 'ACTIVO' ELSE 'INACTIVO' END AS estado
+    FROM productos p
+    JOIN variantes_producto vp ON vp.id_producto = p.id_producto
+    LEFT JOIN categorias c ON c.id_categoria = p.id_categoria
+    LEFT JOIN tipos_producto tp ON tp.id_tipo = p.id_tipo
+    LEFT JOIN marcas m ON m.id_marca = p.id_marca
+    LEFT JOIN materiales mat ON mat.id_material = p.id_material
+    LEFT JOIN tamanos t ON t.id_tamano = vp.id_tamano
+    ORDER BY c.nombre ASC, p.descripcion ASC
+  `;
+
+  const rows = await query<ProductExportRow>(sql);
+  return rows ?? [];
+}
+
