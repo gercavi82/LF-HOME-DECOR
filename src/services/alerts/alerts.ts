@@ -111,14 +111,14 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
       const totAbonos = Number(globalPurchaseTotals[0].total_abonos) || 0;
       const diffGlobal = Math.max(0, Number((totCompras - totAbonos).toFixed(2)));
 
-      if (diffGlobal > 500) {
+      if (diffGlobal >= 500) {
         alerts.unshift({
           id: "pago-diferencia-global-500",
           category: "PAGOS",
-          title: "Alerta: Saldo pendiente a proveedores supera $500.00",
-          subtitle: "Costo Total Compras vs. Total Pagos Realizados",
-          detail: `Costo total compras: $${totCompras.toFixed(2)} vs. Pagos/Depósitos: $${totAbonos.toFixed(2)}. Saldo por liquidar: $${diffGlobal.toFixed(2)} (supera el límite permitido de $500.00).`,
-          badgeLabel: "Saldo > $500",
+          title: "Alerta: Saldo pendiente a proveedores es mayor o igual a $500.00",
+          subtitle: "Costo Total Compras − Total Pagos Realizados",
+          detail: `Costo total compras: $${totCompras.toFixed(2)} − Pagos/Depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (alcanza o supera el límite de $500.00).`,
+          badgeLabel: "Saldo ≥ $500",
           severity: "danger",
           href: "/compras",
           actionLabel: "Ver compras y pagos",
