@@ -24,7 +24,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           <div className="flex flex-wrap items-center gap-2">
             <a
               href="/api/exportar/productos"
-              download
+              download="catalogo_productos.csv"
               className="inline-flex h-11 items-center gap-2 rounded-xl border bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
               title="Descargar lista completa en formato Excel / CSV"
             >

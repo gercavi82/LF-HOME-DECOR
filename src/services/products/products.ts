@@ -706,7 +706,7 @@ export async function getProductsForExport(): Promise<ProductExportRow[]> {
     LEFT JOIN categorias c ON c.id_categoria = p.id_categoria
     LEFT JOIN tipos_producto tp ON tp.id_tipo = p.id_tipo
     LEFT JOIN marcas m ON m.id_marca = p.id_marca
-    LEFT JOIN materiales mat ON mat.id_material = p.id_material
+    LEFT JOIN materiales mat ON mat.id_material = vp.id_material
     LEFT JOIN tamanos t ON t.id_tamano = vp.id_tamano
     ORDER BY c.nombre ASC, p.descripcion ASC
   `;
