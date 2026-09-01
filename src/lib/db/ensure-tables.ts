@@ -239,10 +239,10 @@ export async function ensureCustomTables() {
 
     // Asegurar parámetros del sistema para comisiones (60/40)
     await execute(`
-      INSERT INTO \`parametros_sistema\` (\`codigo\`, \`nombre\`, \`valor\`, \`descripcion\`, \`activo\`) VALUES
-      ('COMISION_ASESOR', 'Porcentaje Comisión Asesor', '60', 'Porcentaje de utilidad neta para el asesor comercial', 1),
-      ('COMISION_LOCAL', 'Porcentaje Comisión Local', '40', 'Porcentaje de utilidad neta para el local comercial', 1)
-      ON DUPLICATE KEY UPDATE \`nombre\` = VALUES(\`nombre\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
+      INSERT INTO \`parametros_sistema\` (\`codigo\`, \`valor\`, \`descripcion\`, \`tipo_dato\`, \`activo\`) VALUES
+      ('COMISION_ASESOR', '60', 'Porcentaje de utilidad neta para el asesor comercial', 'NUMERIC', 1),
+      ('COMISION_LOCAL', '40', 'Porcentaje de utilidad neta para el local comercial', 'NUMERIC', 1)
+      ON DUPLICATE KEY UPDATE \`valor\` = VALUES(\`valor\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
     `).catch(() => null);
 
     // Asegurar columnas en variantes_producto
@@ -275,55 +275,54 @@ export async function ensureCustomTables() {
       ALTER TABLE \`ventas\` ADD COLUMN \`comision_local\` DECIMAL(12,2) NOT NULL DEFAULT 0.00;
     `).catch(() => null);
 
-    // Poblar costo_unitario en variantes_producto con base en compras reales (precio de compra con IVA incluido)
+    // Poblar costo_unitario oficial en variantes_producto con base en catálogo real y compras
     await execute(`
       UPDATE \`variantes_producto\` vp
-      SET vp.costo_unitario = COALESCE(
-        (
-          SELECT ROUND(dc.total / dc.cantidad, 2) 
-          FROM detalle_compras dc 
-          JOIN compras c ON c.id_compra = dc.id_compra 
-          WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-          ORDER BY c.fecha DESC, dc.id_detalle_compra DESC 
-          LIMIT 1
-        ),
-        CASE 
-          WHEN vp.id_variante = 1 THEN 16.00
-          WHEN vp.id_variante = 2 THEN 18.00
-          WHEN vp.id_variante = 3 THEN 14.50
-          WHEN vp.id_variante = 4 THEN 9.00
-          WHEN vp.id_variante = 5 THEN 10.50
-          WHEN vp.id_variante = 6 THEN 10.00
-          WHEN vp.id_variante = 7 THEN 7.50
-          WHEN vp.id_variante = 8 THEN 8.50
-          WHEN vp.id_variante = 9 THEN 18.00
-          WHEN vp.id_variante = 10 THEN 22.00
-          WHEN vp.id_variante = 11 THEN 20.00
-          WHEN vp.id_variante = 12 THEN 16.00
-          WHEN vp.id_variante = 13 THEN 14.00
-          WHEN vp.id_variante = 14 THEN 2.00
-          WHEN vp.id_variante = 15 THEN 22.00
-          WHEN vp.id_variante = 16 THEN 11.00
-          WHEN vp.id_variante = 17 THEN 20.00
-          WHEN vp.id_variante = 18 THEN 24.00
-          ELSE 0.00
-        END
-      )
-      WHERE vp.costo_unitario = 0.00 OR vp.costo_unitario IS NULL;
+      SET vp.costo_unitario = CASE 
+        WHEN vp.id_variante = 1 THEN 16.00
+        WHEN vp.id_variante = 2 THEN 18.00
+        WHEN vp.id_variante = 3 THEN 14.50
+        WHEN vp.id_variante = 4 THEN 9.00
+        WHEN vp.id_variante = 5 THEN 10.50
+        WHEN vp.id_variante = 6 THEN 10.00
+        WHEN vp.id_variante = 7 THEN 7.50
+        WHEN vp.id_variante = 8 THEN 21.00
+        WHEN vp.id_variante = 9 THEN 18.00
+        WHEN vp.id_variante = 10 THEN 20.00
+        WHEN vp.id_variante = 11 THEN 21.00
+        WHEN vp.id_variante = 12 THEN 15.00
+        WHEN vp.id_variante = 13 THEN 12.00
+        WHEN vp.id_variante = 14 THEN 1.50
+        WHEN vp.id_variante = 15 THEN 22.00
+        WHEN vp.id_variante = 16 THEN 8.00
+        WHEN vp.id_variante = 17 THEN 20.00
+        WHEN vp.id_variante = 18 THEN 19.00
+        WHEN vp.id_variante = 19 THEN 21.00
+        ELSE COALESCE(
+          (
+            SELECT ROUND(dc.total / dc.cantidad, 2) 
+            FROM detalle_compras dc 
+            JOIN compras c ON c.id_compra = dc.id_compra 
+            WHERE dc.id_variante = vp.id_variante AND UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+            ORDER BY c.fecha DESC, dc.id_detalle_compra DESC 
+            LIMIT 1
+          ),
+          0.00
+        )
+      END;
     `).catch(() => null);
 
-    // Actualizar detalle_ventas existentes con costo_unitario, costo_total y utilidad
+    // Sincronizar detalle_ventas con costo_unitario, costo_total y utilidad exactos
     await execute(`
       UPDATE \`detalle_ventas\` dv
       JOIN \`variantes_producto\` vp ON vp.id_variante = dv.id_variante
       SET 
-        dv.costo_unitario = CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END,
-        dv.costo_total = ROUND(CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END * dv.cantidad, 2),
-        dv.utilidad = GREATEST(0, dv.total - ROUND(CASE WHEN dv.costo_unitario > 0 THEN dv.costo_unitario ELSE vp.costo_unitario END * dv.cantidad, 2))
-      WHERE dv.costo_total = 0.00 OR dv.costo_unitario = 0.00 OR dv.utilidad = 0.00;
+        dv.costo_unitario = vp.costo_unitario,
+        dv.costo_total = ROUND(vp.costo_unitario * dv.cantidad, 2),
+        dv.utilidad = GREATEST(0, dv.total - ROUND(vp.costo_unitario * dv.cantidad, 2));
     `).catch(() => null);
 
-    // Actualizar ventas existentes con costo_total, utilidad, comision_asesor (60%) y comision_local (40%)
+    // Sincronizar ventas con costo_total, utilidad, comision_asesor (60%) y comision_local (40%)
     await execute(`
       UPDATE \`ventas\` v
       SET 
@@ -346,8 +345,7 @@ export async function ensureCustomTables() {
           SELECT SUM(dv.costo_total)
           FROM detalle_ventas dv
           WHERE dv.id_venta = v.id_venta
-        ), 0.00)) * 0.40, 2)
-      WHERE v.comision_asesor = 0.00 AND v.total > 0;
+        ), 0.00)) * 0.40, 2);
     `).catch(() => null);
 
     tablesEnsured = true;
