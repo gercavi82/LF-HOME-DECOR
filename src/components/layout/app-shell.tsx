@@ -109,7 +109,14 @@ function Navigation({ pathname, permissions, profile, onNavigate }: {
   onNavigate?: () => void;
 }) {
   const visibleItems = navigation.filter((item) => {
-    if (profile === "Administrador") return true;
+    if (
+      profile === "Administrador" ||
+      profile === "Supervisor" ||
+      profile?.toLowerCase().includes("admin") ||
+      profile?.toLowerCase().includes("supervis")
+    ) {
+      return true;
+    }
     if (item.administratorOnly) return false;
     return item.permissions?.some((permission) => permissions.has(permission));
   });

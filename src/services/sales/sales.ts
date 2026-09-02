@@ -592,6 +592,8 @@ export async function getSaleHistory(searchParams: {
     const visibleSellers = (sellerOptions ?? []).filter(
       (seller) =>
         context.perfil === ROLE_NAMES.ADMINISTRADOR ||
+        context.perfil === ROLE_NAMES.SUPERVISOR ||
+        context.perfil?.toLowerCase().includes("supervis") ||
         (context.perfil === ROLE_NAMES.VENTA_LOCAL && seller.id_local === context.id_local) ||
         seller.id_usuario === context.id_usuario
     );
@@ -686,7 +688,13 @@ export async function getSaleWorkspaceContext() {
   let locationsSql = `SELECT id_local, nombre FROM locales WHERE activo = 1`;
   const locationsParams: unknown[] = [];
 
-  if (context.perfil !== ROLE_NAMES.ADMINISTRADOR && context.id_local) {
+  const isSuperOrAdmin =
+    context.perfil === ROLE_NAMES.ADMINISTRADOR ||
+    context.perfil === ROLE_NAMES.SUPERVISOR ||
+    context.perfil?.toLowerCase().includes("admin") ||
+    context.perfil?.toLowerCase().includes("supervis");
+
+  if (!isSuperOrAdmin && context.id_local) {
     locationsSql += ` AND id_local = ?`;
     locationsParams.push(context.id_local);
   }

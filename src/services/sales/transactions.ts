@@ -67,7 +67,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
   return transaction(async (conn) => {
     // 0. Obtener porcentajes de comisión de parámetros_sistema
     const [paramRows] = await conn.execute<RowDataPacket[]>(
-      `SELECT codigo, valor FROM parametros_sistema WHERE codigo IN ('COMISION_ASESOR', 'COMISION_LOCAL') AND activo = 1`
+      `SELECT codigo, valor FROM parametros_sistema WHERE codigo IN ('COMISION_ASESOR', 'COMISION_LOCAL')`
     );
     const paramMap = new Map<string, number>();
     for (const r of (paramRows || []) as { codigo: string; valor: string }[]) {

@@ -6,6 +6,7 @@ import { validateCurrentSession, type UserSession } from "@/src/lib/auth/session
 
 export const ROLE_NAMES = {
   ADMINISTRADOR: "Administrador",
+  SUPERVISOR: "Supervisor",
   VENTA_LOCAL: "Venta Local",
   ASESOR: "Asesor",
 } as const;
@@ -110,6 +111,17 @@ export async function hasPermission(permissionCode: string): Promise<boolean> {
   const user = await getCurrentUser();
   if (!user) return false;
 
+  if (
+    user.id_perfil === 1 ||
+    user.id_perfil === 2 ||
+    user.perfil?.toLowerCase().includes("admin") ||
+    user.perfil?.toLowerCase().includes("supervis") ||
+    user.perfil === ROLE_NAMES.ADMINISTRADOR ||
+    user.perfil === ROLE_NAMES.SUPERVISOR
+  ) {
+    return true;
+  }
+
   return user.permisos.some((p) => p.codigo === permissionCode);
 }
 
@@ -141,7 +153,7 @@ export async function requireAuthContext(): Promise<AuthContext> {
 
 /**
  * Exige que el usuario tenga un permiso específico asignado.
- * Administrador (id_perfil = 1) tiene acceso universal.
+ * Administrador (id_perfil = 1) y Supervisor (id_perfil = 2) tienen acceso universal.
  * Si no tiene el permiso, redirige a /sin-permiso.
  */
 export async function requirePermission(permissionCode: string): Promise<AuthContext> {
@@ -149,8 +161,11 @@ export async function requirePermission(permissionCode: string): Promise<AuthCon
 
   if (
     context.id_perfil === 1 ||
+    context.id_perfil === 2 ||
     context.perfil?.toLowerCase().includes("admin") ||
-    context.perfil === ROLE_NAMES.ADMINISTRADOR
+    context.perfil?.toLowerCase().includes("supervis") ||
+    context.perfil === ROLE_NAMES.ADMINISTRADOR ||
+    context.perfil === ROLE_NAMES.SUPERVISOR
   ) {
     return context;
   }
@@ -174,8 +189,11 @@ export async function requireAnyPermission(permissionCodes: string[]): Promise<A
 
   if (
     context.id_perfil === 1 ||
+    context.id_perfil === 2 ||
     context.perfil?.toLowerCase().includes("admin") ||
-    context.perfil === ROLE_NAMES.ADMINISTRADOR
+    context.perfil?.toLowerCase().includes("supervis") ||
+    context.perfil === ROLE_NAMES.ADMINISTRADOR ||
+    context.perfil === ROLE_NAMES.SUPERVISOR
   ) {
     return context;
   }

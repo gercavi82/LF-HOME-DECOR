@@ -239,27 +239,13 @@ export async function ensureCustomTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // Administrador (todos)
+    // Administrador y Supervisor (todos los permisos)
     await execute(`
       INSERT IGNORE INTO \`perfil_permisos\` (\`id_perfil\`, \`id_permiso\`)
       SELECT p.id_perfil, perm.id_permiso
       FROM perfiles p
       CROSS JOIN permisos perm
-      WHERE p.codigo = 'ADMINISTRADOR' AND perm.activo = 1;
-    `).catch(() => null);
-
-    // Supervisor
-    await execute(`
-      INSERT IGNORE INTO \`perfil_permisos\` (\`id_perfil\`, \`id_permiso\`)
-      SELECT p.id_perfil, perm.id_permiso
-      FROM perfiles p
-      JOIN permisos perm ON perm.codigo IN (
-        'DASHBOARD_VER', 'PRODUCTO_VER', 'PRODUCTO_CREAR', 'PRODUCTO_EDITAR', 'PRODUCTO_PRECIO',
-        'INVENTARIO_VER', 'INVENTARIO_AJUSTAR', 'VENTA_VER', 'VENTA_CREAR', 'VENTA_ANULAR',
-        'COMPRA_VER', 'COMPRA_CREAR', 'COMPRA_EDITAR', 'GASTOS_VER', 'GASTOS_CREAR',
-        'REPORTES_VER', 'FINANZAS_VER', 'COMISIONES_VER'
-      )
-      WHERE p.codigo = 'SUPERVISOR' AND perm.activo = 1;
+      WHERE (p.codigo IN ('ADMINISTRADOR', 'SUPERVISOR') OR p.id_perfil IN (1, 2) OR p.nombre IN ('Administrador', 'Supervisor')) AND perm.activo = 1;
     `).catch(() => null);
 
     // Asesor
@@ -275,10 +261,10 @@ export async function ensureCustomTables() {
 
     // Asegurar parámetros del sistema para comisiones (60/40)
     await execute(`
-      INSERT INTO \`parametros_sistema\` (\`codigo\`, \`valor\`, \`descripcion\`, \`tipo_dato\`, \`activo\`) VALUES
-      ('COMISION_ASESOR', '60', 'Porcentaje de utilidad neta para el asesor comercial', 'NUMERIC', 1),
-      ('COMISION_LOCAL', '40', 'Porcentaje de utilidad neta para el local comercial', 'NUMERIC', 1)
-      ON DUPLICATE KEY UPDATE \`valor\` = VALUES(\`valor\`), \`descripcion\` = VALUES(\`descripcion\`), \`activo\` = 1;
+      INSERT INTO \`parametros_sistema\` (\`codigo\`, \`valor\`, \`descripcion\`, \`tipo_dato\`) VALUES
+      ('COMISION_ASESOR', '60', 'Porcentaje de utilidad neta para el asesor comercial', 'NUMERIC'),
+      ('COMISION_LOCAL', '40', 'Porcentaje de utilidad neta para el local comercial', 'NUMERIC')
+      ON DUPLICATE KEY UPDATE \`valor\` = VALUES(\`valor\`), \`descripcion\` = VALUES(\`descripcion\`);
     `).catch(() => null);
 
     // Asegurar columnas en variantes_producto

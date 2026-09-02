@@ -743,21 +743,6 @@ export function SaleWorkspace({
             className="w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:border-lf-terracotta"
           />
         </label>
-        <label className="mt-4 block">
-          <span className="mb-1.5 block text-sm font-medium">Descuento Global Adicional ($)</span>
-          <input
-            type="number"
-            min="0"
-            max={totals.gross}
-            step="0.01"
-            value={discount || ""}
-            onChange={(event) =>
-              setDiscount(Math.min(totals.gross, Math.max(0, Number(event.target.value))))
-            }
-            placeholder="0.00"
-            className="h-11 w-full rounded-xl border bg-white px-3.5 outline-none focus:border-lf-terracotta"
-          />
-        </label>
         <dl className="mt-5 space-y-3 border-y py-4 text-sm">
           <div className="flex justify-between">
             <dt className="text-lf-muted">Prendas / Productos</dt>
@@ -767,10 +752,12 @@ export function SaleWorkspace({
             <dt className="text-lf-muted">Bruto</dt>
             <dd>{currency.format(totals.gross)}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-lf-muted">Descuento Total</dt>
-            <dd className="text-emerald-700 font-semibold">−{currency.format(totals.discount)}</dd>
-          </div>
+          {totals.discount > 0 ? (
+            <div className="flex justify-between">
+              <dt className="text-lf-muted">Descuento Total</dt>
+              <dd className="text-emerald-700 font-semibold">−{currency.format(totals.discount)}</dd>
+            </div>
+          ) : null}
           <div className="flex justify-between">
             <dt className="text-lf-muted">Subtotal</dt>
             <dd>{currency.format(totals.subtotal)}</dd>
