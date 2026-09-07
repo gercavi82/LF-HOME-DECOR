@@ -393,3 +393,220 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     return { id: saleId, number: numeroVenta, total: totalVenta };
   });
 }
+
+export async function annulSaleTransaction(saleId: number, motivo?: string) {
+  const context = await requirePermission("VENTA_ANULAR");
+
+  if (!saleId || isNaN(saleId) || saleId <= 0) {
+    throw new Error("Identificador de venta inválido.");
+  }
+
+  return transaction(async (conn) => {
+    // 1. Obtener la cabecera de la venta con bloqueo FOR UPDATE
+    const [saleRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_venta, numero_venta, id_local, total, estado, observaciones
+       FROM ventas 
+       WHERE id_venta = ? 
+       FOR UPDATE`,
+      [saleId]
+    );
+
+    const sale = saleRows?.[0] as
+      | {
+          id_venta: number;
+          numero_venta: string;
+          id_local: number;
+          total: number;
+          estado: string;
+          observaciones: string | null;
+        }
+      | undefined;
+
+    if (!sale) {
+      throw new Error("La venta solicitada no existe.");
+    }
+
+    if (sale.estado?.toUpperCase() === "ANULADA") {
+      throw new Error("Esta venta ya se encuentra anulada.");
+    }
+
+    // 2. Obtener los detalles de la venta (ítems vendidos)
+    const [detailRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_detalle, id_variante, cantidad 
+       FROM detalle_ventas 
+       WHERE id_venta = ?`,
+      [saleId]
+    );
+
+    const items = (detailRows || []) as {
+      id_detalle: number;
+      id_variante: number;
+      cantidad: number;
+    }[];
+
+    // 3. Revisar si existen movimientos previos de tipo 'VENTA' para esta venta en el kardex
+    const [movRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_variante, id_bodega, cantidad 
+       FROM movimientos_inventario 
+       WHERE referencia_tipo = 'VENTA' AND referencia_id = ? AND tipo = 'VENTA'`,
+      [saleId]
+    );
+
+    const previousMovements = (movRows || []) as {
+      id_variante: number;
+      id_bodega: number;
+      cantidad: number;
+    }[];
+
+    // Mapear variantes a bodegas donde se descontó
+    const bodegaPorVariante = new Map<number, Array<{ id_bodega: number; cantidad: number }>>();
+    for (const mov of previousMovements) {
+      const list = bodegaPorVariante.get(mov.id_variante) || [];
+      list.push({ id_bodega: mov.id_bodega, cantidad: Number(mov.cantidad) });
+      bodegaPorVariante.set(mov.id_variante, list);
+    }
+
+    // Obtener bodega de fallback del local si no hubiera historial en movimientos_inventario
+    let fallbackBodegaId = 1;
+    const [bodegaFallbackRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_bodega FROM bodegas WHERE (id_local = ? OR id_local = 1) AND activo = 1 ORDER BY (id_local = ?) DESC LIMIT 1`,
+      [sale.id_local || 1, sale.id_local || 1]
+    );
+    if (bodegaFallbackRows && bodegaFallbackRows.length > 0) {
+      fallbackBodegaId = Number((bodegaFallbackRows[0] as { id_bodega: number }).id_bodega) || 1;
+    }
+
+    // 4. Reintegrar stock por cada ítem
+    for (const item of items) {
+      const cantTotal = Number(item.cantidad);
+      const prevDeductions = bodegaPorVariante.get(item.id_variante);
+
+      let distribucion: Array<{ id_bodega: number; cantidad: number }> = [];
+      if (prevDeductions && prevDeductions.length > 0) {
+        distribucion = prevDeductions;
+      } else {
+        distribucion = [{ id_bodega: fallbackBodegaId, cantidad: cantTotal }];
+      }
+
+      for (const dist of distribucion) {
+        // Bloquear fila de stock
+        const [stockRows] = await conn.execute<RowDataPacket[]>(
+          `SELECT id_stock, cantidad 
+           FROM stock_producto 
+           WHERE id_variante = ? AND id_bodega = ? 
+           FOR UPDATE`,
+          [item.id_variante, dist.id_bodega]
+        );
+
+        let stockAnterior = 0;
+
+        if (stockRows && stockRows.length > 0) {
+          const row = stockRows[0] as { id_stock: number; cantidad: number };
+          const stockId = row.id_stock;
+          stockAnterior = Number(row.cantidad);
+          const stockNuevo = stockAnterior + dist.cantidad;
+
+          await conn.execute(
+            `UPDATE stock_producto SET cantidad = ?, fecha_actualizacion = NOW() WHERE id_stock = ?`,
+            [stockNuevo, stockId]
+          );
+
+          // Registrar movimiento en el kardex
+          await conn.execute(
+            `INSERT INTO movimientos_inventario (
+               id_variante,
+               id_bodega,
+               tipo,
+               cantidad,
+               stock_anterior,
+               stock_nuevo,
+               motivo,
+               referencia_tipo,
+               referencia_id,
+               usuario,
+               fecha
+             ) VALUES (?, ?, 'DEVOLUCION_VENTA', ?, ?, ?, ?, 'VENTA', ?, ?, NOW())`,
+            [
+              item.id_variante,
+              dist.id_bodega,
+              dist.cantidad,
+              stockAnterior,
+              stockNuevo,
+              `Anulación de venta ${sale.numero_venta}${motivo ? `: ${motivo}` : ""}`,
+              saleId,
+              context.id_usuario,
+            ]
+          ).catch((e) => console.error("Error insertando movimiento kardex:", e));
+        } else {
+          // Crear registro de stock si no existía previamente en esa bodega
+          const stockNuevo = dist.cantidad;
+          await conn.execute(
+            `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) 
+             VALUES (?, ?, ?, NOW())`,
+            [item.id_variante, dist.id_bodega, stockNuevo]
+          );
+
+          await conn.execute(
+            `INSERT INTO movimientos_inventario (
+               id_variante,
+               id_bodega,
+               tipo,
+               cantidad,
+               stock_anterior,
+               stock_nuevo,
+               motivo,
+               referencia_tipo,
+               referencia_id,
+               usuario,
+               fecha
+             ) VALUES (?, ?, 'DEVOLUCION_VENTA', ?, 0, ?, ?, 'VENTA', ?, ?, NOW())`,
+            [
+              item.id_variante,
+              dist.id_bodega,
+              dist.cantidad,
+              stockNuevo,
+              `Anulación de venta ${sale.numero_venta}${motivo ? `: ${motivo}` : ""}`,
+              saleId,
+              context.id_usuario,
+            ]
+          ).catch((e) => console.error("Error insertando movimiento kardex:", e));
+        }
+      }
+    }
+
+    // 5. Actualizar estado de la venta a ANULADA
+    const fechaHoraStr = new Date().toLocaleString("es-EC", { timeZone: "America/Guayaquil" });
+    const userNombre = `${context.nombres || ""} ${context.apellidos || ""}`.trim() || `Usuario #${context.id_usuario}`;
+    const notaAnulacion = `\n[ANULADA el ${fechaHoraStr} por ${userNombre}${motivo ? ` - Motivo: ${motivo}` : ""}]`;
+    const observacionesActualizadas = `${sale.observaciones || ""}${notaAnulacion}`.trim();
+
+    await conn.execute(
+      `UPDATE ventas 
+       SET estado = 'ANULADA', observaciones = ? 
+       WHERE id_venta = ?`,
+      [observacionesActualizadas, saleId]
+    );
+
+    // 6. Registrar en auditoría
+    await conn.execute(
+      `INSERT INTO auditoria (
+         usuario,
+         tabla_afectada,
+         accion,
+         registro_id,
+         valor_anterior,
+         valor_nuevo,
+         fecha
+       ) VALUES (?, 'ventas', 'ANULACION', ?, ?, ?, NOW())`,
+      [
+        context.id_usuario,
+        saleId,
+        JSON.stringify({ estado: sale.estado, total: sale.total }),
+        JSON.stringify({ estado: "ANULADA", motivo: motivo || null, fecha: new Date().toISOString() }),
+      ]
+    ).catch((e) => console.error("Error insertando auditoria:", e));
+
+    return { success: true, numero_venta: sale.numero_venta };
+  });
+}
+
