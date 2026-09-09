@@ -5,7 +5,8 @@ import { cookies, headers } from "next/headers";
 import { queryOne, execute } from "@/src/lib/db/mysql";
 
 export const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "lf_session";
-const DEFAULT_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 días
+// Inactividad máxima de 30 minutos (1800 segundos) por política de seguridad
+const DEFAULT_SESSION_MAX_AGE_SECONDS = 30 * 60; // 30 minutos
 
 export function getSessionMaxAge(): number {
   const configured = Number(process.env.SESSION_MAX_AGE);
@@ -129,6 +130,14 @@ export async function validateCurrentSession(): Promise<UserSession | null> {
   if (!session) {
     return null;
   }
+
+  // Deslizamiento de sesión activa: extender 30 minutos desde la última solicitud
+  const maxAgeSeconds = getSessionMaxAge();
+  const newExpiration = new Date(Date.now() + maxAgeSeconds * 1000);
+  execute(
+    `UPDATE sesiones_usuario SET fecha_expiracion = ? WHERE id_sesion = ?`,
+    [newExpiration, session.id_sesion]
+  ).catch(() => null);
 
   return session;
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, ShieldAlert } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useActionState, useEffect, useState } from "react";
 
 import { Alert, Button, Input, Spinner } from "@/src/components/ui";
 
@@ -11,9 +12,48 @@ import { loginAction, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
 
+function InactivityNotice() {
+  const searchParams = useSearchParams();
+  const isInactive = searchParams.get("inactivo") === "1";
+
+  if (!isInactive) return null;
+
+  return (
+    <Alert variant="warning" className="mb-5 flex items-start gap-2 text-left">
+      <ShieldAlert size={20} className="shrink-0 text-amber-600 mt-0.5" />
+      <div>
+        <p className="font-semibold text-amber-900">Sesión cerrada por inactividad</p>
+        <p className="text-xs text-amber-700 mt-0.5">
+          Tu sesión se cerró automáticamente tras 30 minutos de inactividad para proteger tus datos. Ingresa tus credenciales nuevamente.
+        </p>
+      </div>
+    </Alert>
+  );
+}
+
 export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    // 1. Limpieza de memoria y almacenamiento de sesión
+    try {
+      sessionStorage.clear();
+      localStorage.removeItem("lf_last_activity_ts");
+    } catch {
+      // Ignorar restricciones de almacenamiento
+    }
+
+    // 2. Prevenir restauración desde bfcache (botón Atrás del navegador)
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
 
   return (
     <main className="grid min-h-screen place-items-center bg-lf-beige px-4 py-6 sm:px-6 lg:px-8">
@@ -57,14 +97,18 @@ export default function LoginPage() {
               </p>
             </header>
 
-            <form action={formAction} className="space-y-5" noValidate>
+            <Suspense fallback={null}>
+              <InactivityNotice />
+            </Suspense>
+
+            <form action={formAction} className="space-y-5" noValidate autoComplete="off">
               <Input
                 id="cedula"
                 name="cedula"
                 label="Usuario (cédula)"
                 type="text"
                 inputMode="numeric"
-                autoComplete="username"
+                autoComplete="off"
                 enterKeyHint="next"
                 minLength={10}
                 maxLength={10}
@@ -79,7 +123,7 @@ export default function LoginPage() {
                 name="password"
                 label="Contraseña"
                 type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
+                autoComplete="new-password"
                 enterKeyHint="go"
                 required
                 disabled={isPending}

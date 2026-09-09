@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AppShell } from "@/src/components/layout";
 import { getAlertCount } from "@/src/services/alerts/alerts";
 import { requireAuthContext } from "@/src/services/auth/authorization";
+import { SessionInactivityTracker } from "@/src/components/auth/session-inactivity-tracker";
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
   const context = await requireAuthContext();
@@ -20,7 +21,9 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
       permissionCodes={context.permisos.map((permission) => permission.codigo)}
       alertCount={alertCount}
     >
+      <SessionInactivityTracker />
       {children}
     </AppShell>
   );
 }
+
