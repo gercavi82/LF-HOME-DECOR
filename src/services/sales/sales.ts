@@ -196,7 +196,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       v.comision_local,
       v.observaciones,
       v.estado,
-      COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 1) AS unidades,
+      COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 0) AS unidades,
       COALESCE((
         SELECT GROUP_CONCAT(CONCAT(p_sub.descripcion, ' (x', dv_sub.cantidad, ')') SEPARATOR ', ')
         FROM detalle_ventas dv_sub
@@ -341,23 +341,28 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       utilidad: Number(sale.utilidad) || 0,
       comision_asesor: Number(sale.comision_asesor) || 0,
       comision_local: Number(sale.comision_local) || 0,
-      unidades: Number(sale.unidades) || 1,
+      unidades: Number(sale.unidades) || 0,
       observaciones: sale.observaciones,
       estado: sale.estado,
       productos: sale.productos_vendidos || "",
     }));
 
-    const totalComisionLocal = Number(mapped.reduce((sum, s) => sum + s.comision_local, 0).toFixed(2));
+    const isAnuladaFilter = selectedEstado?.toUpperCase() === "ANULADA" || selectedEstado?.toUpperCase() === "ANULADO";
+    const salesForSummary = isAnuladaFilter
+      ? mapped
+      : mapped.filter((s) => s.estado?.toUpperCase() !== "ANULADA" && s.estado?.toUpperCase() !== "ANULADO");
+
+    const totalComisionLocal = Number(salesForSummary.reduce((sum, s) => sum + s.comision_local, 0).toFixed(2));
     const saldoComisionLocal = Number((totalComisionLocal - totalGastos).toFixed(2));
 
     const summary: SalesSummary = {
-      totalVentas: Number(mapped.reduce((sum, s) => sum + s.total, 0).toFixed(2)),
-      totalUtilidad: Number(mapped.reduce((sum, s) => sum + s.utilidad, 0).toFixed(2)),
-      totalComisionAsesor: Number(mapped.reduce((sum, s) => sum + s.comision_asesor, 0).toFixed(2)),
+      totalVentas: Number(salesForSummary.reduce((sum, s) => sum + s.total, 0).toFixed(2)),
+      totalUtilidad: Number(salesForSummary.reduce((sum, s) => sum + s.utilidad, 0).toFixed(2)),
+      totalComisionAsesor: Number(salesForSummary.reduce((sum, s) => sum + s.comision_asesor, 0).toFixed(2)),
       totalComisionLocal,
       totalGastos,
       saldoComisionLocal,
-      totalUnidades: mapped.reduce((sum, s) => sum + s.unidades, 0),
+      totalUnidades: salesForSummary.reduce((sum, s) => sum + s.unidades, 0),
     };
 
     return {

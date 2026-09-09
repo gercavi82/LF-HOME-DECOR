@@ -148,7 +148,7 @@ export async function getFinancialReport(filters?: {
       }>(
         `SELECT 
            DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
-           COALESCE(SUM((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta)), 1) AS unidades,
+           COALESCE(SUM((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta)), 0) AS unidades,
            COALESCE(SUM(v.total), 0) AS total_ventas,
            COALESCE(SUM(v.costo_total), 0) AS total_costo,
            COALESCE(SUM(v.utilidad), 0) AS utilidad,
@@ -244,8 +244,8 @@ export async function getFinancialReport(filters?: {
          COALESCE(SUM(d.utilidad), 0) AS utilidad
        FROM detalle_ventas d
        JOIN ventas v ON v.id_venta = d.id_venta
-       JOIN variantes_producto vp ON vp.id_variante = d.id_variante
-       JOIN productos prod ON prod.id_producto = vp.id_producto
+       LEFT JOIN variantes_producto vp ON vp.id_variante = d.id_variante
+       LEFT JOIN productos prod ON prod.id_producto = vp.id_producto
        LEFT JOIN tipos_producto tp ON tp.id_tipo = prod.id_tipo
        LEFT JOIN categorias cat ON cat.id_categoria = prod.id_categoria
        WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
@@ -327,7 +327,7 @@ export async function getFinancialReport(filters?: {
           v.utilidad,
           v.comision_asesor,
           v.comision_local,
-          COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 1) AS unidades
+          COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 0) AS unidades
         FROM ventas v
         ${selectedTipoId ? `JOIN detalle_ventas d ON d.id_venta = v.id_venta JOIN variantes_producto vp ON vp.id_variante = d.id_variante JOIN productos prod ON prod.id_producto = vp.id_producto` : ""}
         WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
