@@ -70,7 +70,7 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
                 purchases={purchaseOption}
                 suppliers={catalogs.proveedores}
                 defaultPurchaseId={purchase.id_compra}
-                triggerLabel="+ Registrar Abono a esta Factura"
+                triggerLabel="Registrar Abono a esta Factura"
               />
             ) : null}
             {canEdit ? (
