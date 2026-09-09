@@ -142,25 +142,41 @@ export function SaleWorkspace({
     return () => window.clearInterval(timer);
   }, []);
 
-  const availableProducts = useMemo(() => {
-    return products.filter((product) => {
-      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0;
-      return stock > 0;
-    });
-  }, [products, locationId]);
-
   const matches = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("es");
-    if (!term) return [];
-    return availableProducts
-      .filter(
-        (product) =>
-          product.producto.toLocaleLowerCase("es").includes(term) ||
-          product.codigo_interno.toLocaleLowerCase("es").includes(term) ||
-          product.codigo_gs1?.includes(term.replace(/[\s-]/g, ""))
-      )
-      .slice(0, 8);
-  }, [availableProducts, search]);
+    const rawTerm = search.trim();
+    if (!rawTerm) return [];
+
+    const normalize = (str: string) =>
+      str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[|_-]/g, " ");
+
+    const cleanTerm = normalize(rawTerm);
+    const tokens = cleanTerm.split(/\s+/).filter(Boolean);
+
+    return products
+      .filter((product) => {
+        const fullIndex = normalize(
+          `${product.producto} ${product.codigo_interno} ${product.codigo_gs1 || ""} ${product.search_terms || ""} ${product.tipo || ""} ${product.categoria || ""} ${product.marca || ""} ${product.tamano || ""}`
+        );
+
+        const matchAllTokens = tokens.every((token) => fullIndex.includes(token));
+        const gs1Raw = (product.codigo_gs1 || "").replace(/[\s-]/g, "");
+        const matchGs1 = gs1Raw && gs1Raw.includes(rawTerm.replace(/[\s-]/g, ""));
+
+        return matchAllTokens || matchGs1;
+      })
+      .sort((a, b) => {
+        const stockA = a.stockPorLocal[locationId] ?? a.stockPorLocal[1] ?? 0;
+        const stockB = b.stockPorLocal[locationId] ?? b.stockPorLocal[1] ?? 0;
+        if (stockA > 0 && stockB <= 0) return -1;
+        if (stockB > 0 && stockA <= 0) return 1;
+        return a.producto.localeCompare(b.producto);
+      })
+      .slice(0, 10);
+  }, [products, search, locationId]);
 
   const totals = useMemo(() => calculateCart(cart, discount), [cart, discount]);
   const selectedPaymentMethod = paymentMethods.find((method) => method.id_forma_pago === paymentMethodId);
@@ -257,10 +273,15 @@ export function SaleWorkspace({
   const addProduct = useCallback(
     (product: SaleProduct) => {
       const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0;
+      if (stock <= 0) {
+        setMessage(`El producto "${product.producto}" no tiene stock disponible en este local (Stock: 0). Por favor registra una compra o ajuste en inventario.`);
+        return;
+      }
+
       setCart((current) => {
         const existing = current.find((item) => item.id_variante === product.id_variante);
         if (existing && existing.cantidad >= stock) {
-          setMessage(`Stock insuficiente para ${product.producto}. Disponible: ${stock}.`);
+          setMessage(`Stock insuficiente para "${product.producto}". Disponible: ${stock}.`);
           return current;
         }
         setMessage(undefined);
@@ -281,13 +302,13 @@ export function SaleWorkspace({
   const scanDetected = useCallback(
     (code: string) => {
       const normalized = code.trim().toLocaleLowerCase("es");
-      const product = availableProducts.find(
+      const product = products.find(
         (item) => item.codigo_interno.toLocaleLowerCase("es") === normalized || item.codigo_gs1 === code
       );
       if (product) addProduct(product);
-      else setMessage("El código escaneado no está activo o no tiene stock en este local.");
+      else setMessage("El código escaneado no fue encontrado en el catálogo de productos.");
     },
-    [availableProducts, addProduct]
+    [products, addProduct]
   );
 
   function changeQuantity(id: number, next: number) {
@@ -349,26 +370,48 @@ export function SaleWorkspace({
             />
           </label>
           <Gs1Scanner onDetected={scanDetected} />
-          {matches.length ? (
-            <div className="absolute left-0 right-0 top-14 z-20 max-h-80 overflow-y-auto rounded-xl border bg-white p-2 shadow-[var(--lf-shadow-md)] sm:right-28">
-              {matches.map((product) => (
-                <button
-                  key={product.id_variante}
-                  type="button"
-                  onClick={() => addProduct(product)}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-lf-surface-muted"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{product.producto}</span>
-                    <span className="block font-mono text-xs text-lf-muted">
-                      {product.codigo_interno}
-                      {product.codigo_gs1 ? ` · GS1 ${product.codigo_gs1}` : ""} · Stock{" "}
-                      {product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0}
-                    </span>
-                  </span>
-                  <span className="shrink-0 font-bold text-lf-terracotta">{currency.format(product.precio)}</span>
-                </button>
-              ))}
+          {search.trim().length > 0 ? (
+            <div className="absolute left-0 right-0 top-14 z-30 max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl sm:right-28 animate-in fade-in zoom-in-95 duration-100">
+              {matches.length ? (
+                matches.map((product) => {
+                  const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0;
+                  const hasStock = stock > 0;
+                  return (
+                    <button
+                      key={product.id_variante}
+                      type="button"
+                      onClick={() => addProduct(product)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left transition ${
+                        hasStock ? "hover:bg-slate-50 cursor-pointer" : "opacity-75 hover:bg-amber-50/50"
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900">{product.producto}</span>
+                        <span className="flex flex-wrap items-center gap-2 font-mono text-xs text-lf-muted mt-0.5">
+                          <span className="font-semibold text-slate-600">{product.codigo_interno}</span>
+                          {product.codigo_gs1 ? <span>· GS1: {product.codigo_gs1}</span> : null}
+                          <span
+                            className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold ${
+                              hasStock
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-amber-100 text-amber-800 border border-amber-300"
+                            }`}
+                          >
+                            {hasStock ? `Stock: ${stock}` : "Sin stock (0)"}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-bold text-lf-terracotta text-sm">
+                        {currency.format(product.precio)}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="p-4 text-center text-sm text-slate-500">
+                  No se encontraron productos con &ldquo;<strong>{search}</strong>&rdquo;.
+                </div>
+              )}
             </div>
           ) : null}
         </div>

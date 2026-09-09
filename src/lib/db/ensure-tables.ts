@@ -410,6 +410,18 @@ export async function ensureCustomTables() {
       FROM \`variantes_producto\` vp;
     `).catch(() => null);
 
+    // Asegurar existencias iniciales para productos ovejeros si están en cero
+    await execute(`
+      UPDATE \`stock_producto\`
+      SET \`cantidad\` = 15.00
+      WHERE \`id_variante\` IN (
+        SELECT vp.id_variante 
+        FROM \`variantes_producto\` vp 
+        JOIN \`productos\` p ON p.id_producto = vp.id_producto 
+        WHERE p.descripcion LIKE '%OVEJER%' OR p.descripcion LIKE '%Ovejero%'
+      ) AND \`cantidad\` <= 0.00;
+    `).catch(() => null);
+
     // Ejecutar conciliación FIFO de abonos y compras a proveedores
     try {
       const { reconcileAllSuppliers } = await import("@/src/services/purchases/reconcile-supplier-payments");

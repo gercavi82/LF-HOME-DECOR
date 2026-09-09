@@ -115,6 +115,11 @@ export type SaleProduct = {
   id_categoria: number;
   id_tipo: number;
   stockPorLocal: Record<number, number>;
+  search_terms?: string;
+  categoria?: string;
+  tipo?: string;
+  marca?: string;
+  tamano?: string;
 };
 export type SaleWarehouse = { id_bodega: number; id_local: number; nombre: string };
 export type SaleStock = { id_variante: number; id_bodega: number; cantidad: number };
@@ -755,6 +760,8 @@ export async function getSaleWorkspaceContext() {
           precio_venta: number;
           porcentaje_iva: number;
           stock_minimo: number;
+          tamano: string | null;
+          color: string | null;
         }>(
           `SELECT 
              vp.id_variante,
@@ -763,21 +770,51 @@ export async function getSaleWorkspaceContext() {
              vp.codigo_interno,
              vp.precio_venta,
              vp.porcentaje_iva,
-             vp.stock_minimo
+             vp.stock_minimo,
+             COALESCE(tam.nombre, '') AS tamano,
+             COALESCE(col.nombre, '') AS color
            FROM variantes_producto vp
            JOIN productos p ON p.id_producto = vp.id_producto
+           LEFT JOIN tamanos tam ON tam.id_tamano = vp.id_tamano
+           LEFT JOIN colores col ON col.id_color = vp.id_color
            WHERE vp.activo = 1 AND p.activo = 1
            ORDER BY vp.id_variante ASC`
         ).catch(() => []),
-        query<{ id_producto: number; descripcion: string; id_categoria: number; id_tipo: number }>(
-          `SELECT id_producto, descripcion, id_categoria, id_tipo FROM productos WHERE activo = 1`
+        query<{
+          id_producto: number;
+          descripcion: string;
+          detalle: string | null;
+          id_categoria: number;
+          id_tipo: number;
+          categoria: string | null;
+          tipo: string | null;
+          marca: string | null;
+        }>(
+          `SELECT 
+             p.id_producto,
+             p.descripcion,
+             p.detalle,
+             p.id_categoria,
+             p.id_tipo,
+             COALESCE(c.nombre, '') AS categoria,
+             COALESCE(t.nombre, '') AS tipo,
+             COALESCE(m.nombre, '') AS marca
+           FROM productos p
+           LEFT JOIN categorias c ON c.id_categoria = p.id_categoria
+           LEFT JOIN tipos_producto t ON t.id_tipo = p.id_tipo
+           LEFT JOIN marcas m ON m.id_marca = p.id_marca
+           WHERE p.activo = 1`
         ).catch(() => []),
         query<{ id_bodega: number; id_local: number; nombre: string }>(
           `SELECT id_bodega, id_local, nombre FROM bodegas WHERE activo = 1`
         ).catch(() => []),
         query<{ id_variante: number; id_bodega: number; cantidad: number }>(
           `SELECT id_variante, id_bodega, cantidad FROM stock_producto`
-        ).catch(() => []),
+        ).catch(async () => {
+          return query<{ id_variante: number; id_bodega: number; cantidad: number }>(
+            `SELECT id_variante, id_bodega, stock_actual AS cantidad FROM inventario`
+          ).catch(() => []);
+        }),
         query<{ id_canal: number; nombre: string; codigo: string }>(
           `SELECT id_canal, nombre, codigo FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
         ).catch(() => []),
@@ -820,6 +857,28 @@ export async function getSaleWorkspaceContext() {
     const mappedVariants: SaleProduct[] = (variants ?? []).map((v) => {
       const prod = productMap.get(v.id_producto);
       const stockObj = stockMapByVariantAndLocal.get(Number(v.id_variante));
+
+      // Limpieza y formato amigable de título
+      const rawDesc = prod?.descripcion || "Producto";
+      let cleanTitle = rawDesc
+        .replace(/BRAMANTEOVEJERO/gi, "BRAMANTE OVEJERO")
+        .replace(/\|/g, " - ");
+
+      // Construcción de términos de búsqueda enriquecidos (sinónimos, tipos, categorías, códigos)
+      const searchTerms = [
+        rawDesc,
+        cleanTitle,
+        prod?.detalle || "",
+        prod?.tipo || "",
+        prod?.categoria || "",
+        prod?.marca || "",
+        v.tamano || "",
+        v.color || "",
+        v.codigo_interno || "",
+        v.codigo_gs1 || "",
+        rawDesc.toLowerCase().includes("ovejer") ? "ovejero ovejeros edredon cobertor cobija plumon" : "",
+      ].filter(Boolean).join(" ");
+
       return {
         id_variante: Number(v.id_variante),
         id_producto: Number(v.id_producto),
@@ -829,10 +888,15 @@ export async function getSaleWorkspaceContext() {
         precio_venta: Number(v.precio_venta),
         porcentaje_iva: Number(v.porcentaje_iva),
         stock_minimo: Number(v.stock_minimo),
-        producto: prod?.descripcion || "Producto",
+        producto: cleanTitle,
         id_categoria: prod?.id_categoria || 1,
         id_tipo: prod?.id_tipo || 1,
         stockPorLocal: stockObj && Object.keys(stockObj).length > 0 ? stockObj : { 1: 0 },
+        search_terms: searchTerms,
+        categoria: prod?.categoria || "",
+        tipo: prod?.tipo || "",
+        marca: prod?.marca || "",
+        tamano: v.tamano || "",
       };
     });
 
