@@ -25,6 +25,7 @@ export type SaleListItem = {
   unidades: number;
   observaciones?: string | null;
   estado: string;
+  productos?: string;
 };
 
 export type SalesFilterParams = {
@@ -150,6 +151,7 @@ type SaleListRowRaw = {
   estado: string;
   observaciones: string | null;
   unidades: number;
+  productos_vendidos?: string | null;
 };
 
 export async function listSales(filtersInput?: string | SalesFilterParams): Promise<{
@@ -194,7 +196,14 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       v.comision_local,
       v.observaciones,
       v.estado,
-      COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 1) AS unidades
+      COALESCE((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta), 1) AS unidades,
+      COALESCE((
+        SELECT GROUP_CONCAT(CONCAT(p_sub.descripcion, ' (x', dv_sub.cantidad, ')') SEPARATOR ', ')
+        FROM detalle_ventas dv_sub
+        JOIN variantes_producto vp_sub ON vp_sub.id_variante = dv_sub.id_variante
+        JOIN productos p_sub ON p_sub.id_producto = vp_sub.id_producto
+        WHERE dv_sub.id_venta = v.id_venta
+      ), '') AS productos_vendidos
     FROM ventas v
     JOIN locales l ON l.id_local = v.id_local
     LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
@@ -247,8 +256,41 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   }
 
   if (normalized) {
-    whereClauses.push(`(v.numero_venta LIKE ? OR c.nombres LIKE ? OR c.razon_social LIKE ?)`);
-    params.push(`%${normalized}%`, `%${normalized}%`, `%${normalized}%`);
+    const tokens = normalized.split(/\s+/).filter(Boolean);
+    const searchTarget = (token: string) => {
+      const p = `%${token}%`;
+      whereClauses.push(`(
+        v.numero_venta LIKE ?
+        OR c.nombres LIKE ?
+        OR c.apellidos LIKE ?
+        OR c.razon_social LIKE ?
+        OR c.identificacion LIKE ?
+        OR EXISTS (
+          SELECT 1
+          FROM detalle_ventas dv_q
+          JOIN variantes_producto vp_q ON vp_q.id_variante = dv_q.id_variante
+          JOIN productos p_q ON p_q.id_producto = vp_q.id_producto
+          LEFT JOIN tipos_producto tp_q ON tp_q.id_tipo = p_q.id_tipo
+          LEFT JOIN categorias cat_q ON cat_q.id_categoria = p_q.id_categoria
+          WHERE dv_q.id_venta = v.id_venta
+            AND (
+              p_q.descripcion LIKE ?
+              OR p_q.detalle LIKE ?
+              OR vp_q.codigo_interno LIKE ?
+              OR vp_q.codigo_gs1 LIKE ?
+              OR tp_q.nombre LIKE ?
+              OR cat_q.nombre LIKE ?
+            )
+        )
+      )`);
+      params.push(p, p, p, p, p, p, p, p, p, p, p);
+    };
+
+    if (tokens.length > 1) {
+      tokens.forEach(searchTarget);
+    } else {
+      searchTarget(normalized);
+    }
   }
 
   if (whereClauses.length > 0) {
@@ -308,6 +350,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       unidades: Number(sale.unidades) || 1,
       observaciones: sale.observaciones,
       estado: sale.estado,
+      productos: sale.productos_vendidos || "",
     }));
 
     const totalComisionLocal = Number(mapped.reduce((sum, s) => sum + s.comision_local, 0).toFixed(2));

@@ -173,7 +173,7 @@ export default async function SalesPage({
               <input
                 name="q"
                 defaultValue={q}
-                placeholder="Nº venta, cliente o RUC..."
+                placeholder="Nº venta, cliente, RUC o producto (ej. ovejero)..."
                 className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none focus:border-lf-terracotta"
               />
             </div>
@@ -331,6 +331,11 @@ export default async function SalesPage({
                     <TableCell>
                       <p className="font-semibold text-lf-navy">{sale.vendedor}</p>
                       <p className="text-xs text-lf-muted">{sale.cliente}</p>
+                      {sale.productos ? (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 max-w-[260px] truncate" title={sale.productos}>
+                          <span>📦</span> <span className="truncate">{sale.productos}</span>
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-sm text-lf-muted">{sale.local}</TableCell>
                     <TableCell className="text-center font-bold">{sale.unidades}</TableCell>
