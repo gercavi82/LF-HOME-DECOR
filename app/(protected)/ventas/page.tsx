@@ -310,6 +310,7 @@ export default async function SalesPage({
                   <TableHead>Venta</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead>Asesor / Vendedor</TableHead>
+                  <TableHead>Producto Vendido</TableHead>
                   <TableHead>Local</TableHead>
                   <TableHead className="text-center">Cant.</TableHead>
                   <TableHead className="text-right">Venta Total</TableHead>
@@ -331,11 +332,15 @@ export default async function SalesPage({
                     <TableCell>
                       <p className="font-semibold text-lf-navy">{sale.vendedor}</p>
                       <p className="text-xs text-lf-muted">{sale.cliente}</p>
+                    </TableCell>
+                    <TableCell className="max-w-[240px]">
                       {sale.productos ? (
-                        <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 max-w-[260px] truncate" title={sale.productos}>
-                          <span>📦</span> <span className="truncate">{sale.productos}</span>
+                        <p className="text-xs font-medium text-slate-800 line-clamp-2 leading-relaxed" title={sale.productos}>
+                          {sale.productos}
                         </p>
-                      ) : null}
+                      ) : (
+                        <span className="text-xs italic text-lf-muted">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-lf-muted">{sale.local}</TableCell>
                     <TableCell className="text-center font-bold">{sale.unidades}</TableCell>
@@ -368,7 +373,7 @@ export default async function SalesPage({
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
-                  <TableCell colSpan={4}>TOTAL FILTRADO ({totalItems} ventas)</TableCell>
+                  <TableCell colSpan={5}>TOTAL FILTRADO ({totalItems} ventas)</TableCell>
                   <TableCell className="text-center">{summary.totalUnidades}</TableCell>
                   <TableCell className="text-right text-lf-navy">{currency.format(summary.totalVentas)}</TableCell>
                   <TableCell className="text-right text-emerald-700">{currency.format(summary.totalComisionAsesor)}</TableCell>
