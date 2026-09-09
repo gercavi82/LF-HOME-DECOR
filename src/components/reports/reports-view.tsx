@@ -257,11 +257,10 @@ export function ReportsView({
           <button
             type="button"
             onClick={() => setActiveTab("ASESORES")}
-            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${
-              activeTab === "ASESORES"
+            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${activeTab === "ASESORES"
                 ? "border-emerald-600 bg-white text-emerald-800 shadow-sm"
                 : "border-transparent text-lf-muted hover:bg-white/50 hover:text-lf-navy"
-            }`}
+              }`}
           >
             <Users size={18} className={activeTab === "ASESORES" ? "text-emerald-600" : "text-lf-muted"} />
             <span>Liquidación de Asesores (60%)</span>
@@ -273,11 +272,10 @@ export function ReportsView({
           <button
             type="button"
             onClick={() => setActiveTab("LOCAL")}
-            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${
-              activeTab === "LOCAL"
+            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${activeTab === "LOCAL"
                 ? "border-amber-500 bg-white text-amber-900 shadow-sm"
                 : "border-transparent text-lf-muted hover:bg-white/50 hover:text-lf-navy"
-            }`}
+              }`}
           >
             <Store size={18} className={activeTab === "LOCAL" ? "text-amber-500" : "text-lf-muted"} />
             <span>Liquidación Local (40%) y Gastos</span>
@@ -289,11 +287,10 @@ export function ReportsView({
           <button
             type="button"
             onClick={() => setActiveTab("MENSUAL")}
-            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${
-              activeTab === "MENSUAL"
+            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${activeTab === "MENSUAL"
                 ? "border-blue-600 bg-white text-blue-900 shadow-sm"
                 : "border-transparent text-lf-muted hover:bg-white/50 hover:text-lf-navy"
-            }`}
+              }`}
           >
             <Calendar size={18} className={activeTab === "MENSUAL" ? "text-blue-600" : "text-lf-muted"} />
             <span>Evolución Mensual y Anual</span>
@@ -305,11 +302,10 @@ export function ReportsView({
           <button
             type="button"
             onClick={() => setActiveTab("PRODUCTOS")}
-            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${
-              activeTab === "PRODUCTOS"
+            className={`flex items-center gap-2 rounded-t-2xl border-b-2 px-5 py-3 text-sm font-semibold transition ${activeTab === "PRODUCTOS"
                 ? "border-purple-600 bg-white text-purple-900 shadow-sm"
                 : "border-transparent text-lf-muted hover:bg-white/50 hover:text-lf-navy"
-            }`}
+              }`}
           >
             <Layers size={18} className={activeTab === "PRODUCTOS" ? "text-purple-600" : "text-lf-muted"} />
             <span>Ventas por Tipo de Producto</span>
@@ -400,15 +396,15 @@ export function ReportsView({
                               adv.estado_pago === "PAGADO"
                                 ? "success"
                                 : adv.estado_pago === "PENDIENTE"
-                                ? "warning"
-                                : "neutral"
+                                  ? "warning"
+                                  : "neutral"
                             }
                           >
                             {adv.estado_pago === "PAGADO"
                               ? "Liquidado"
                               : adv.estado_pago === "PENDIENTE"
-                              ? "Pendiente"
-                              : "Sin ventas"}
+                                ? "Pendiente"
+                                : "Sin ventas"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
@@ -416,7 +412,7 @@ export function ReportsView({
                             <CommissionPaymentModal
                               advisors={advisorOptions}
                               defaultAdvisorId={adv.id_usuario}
-                              triggerLabel="+ Abono"
+                              triggerLabel="Abono"
                               compact
                             />
                           ) : (

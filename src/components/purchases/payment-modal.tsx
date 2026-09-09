@@ -91,18 +91,17 @@ export function PurchasePaymentModal({
     });
   });
 
-  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "+ Abono" : "Registrar depósito / abono");
+  const buttonText = triggerLabel || (defaultPurchaseId || compact ? "Abono" : "Registrar depósito / abono");
 
   return (
     <>
       <button
         type="button"
         onClick={handleOpen}
-        className={`inline-flex items-center justify-center whitespace-nowrap font-semibold text-white bg-emerald-700 hover:bg-emerald-800 transition shadow-sm ${
-          compact || defaultPurchaseId
+        className={`inline-flex items-center justify-center whitespace-nowrap font-semibold text-white bg-emerald-700 hover:bg-emerald-800 transition shadow-sm ${compact || defaultPurchaseId
             ? "h-8 px-2.5 rounded-xl text-xs gap-1"
             : "h-9 px-3.5 rounded-xl text-xs gap-1.5"
-        }`}
+          }`}
       >
         <Plus size={13} /> {buttonText}
       </button>
