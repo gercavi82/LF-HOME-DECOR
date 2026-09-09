@@ -137,6 +137,7 @@ export async function ensureCustomTables() {
         \`activo\` TINYINT(1) NOT NULL DEFAULT 1
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    await execute(`ALTER TABLE \`clientes\` ADD COLUMN \`apellidos\` VARCHAR(100) NULL;`).catch(() => null);
     await execute(`
       INSERT INTO \`clientes\` (\`id_cliente\`, \`identificacion\`, \`nombres\`, \`apellidos\`, \`razon_social\`, \`activo\`) VALUES
       (1, '9999999999999', 'Consumidor', 'Final', 'Consumidor Final', 1)

@@ -262,7 +262,6 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       whereClauses.push(`(
         v.numero_venta LIKE ?
         OR c.nombres LIKE ?
-        OR c.apellidos LIKE ?
         OR c.razon_social LIKE ?
         OR c.identificacion LIKE ?
         OR EXISTS (
@@ -270,20 +269,15 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
           FROM detalle_ventas dv_q
           JOIN variantes_producto vp_q ON vp_q.id_variante = dv_q.id_variante
           JOIN productos p_q ON p_q.id_producto = vp_q.id_producto
-          LEFT JOIN tipos_producto tp_q ON tp_q.id_tipo = p_q.id_tipo
-          LEFT JOIN categorias cat_q ON cat_q.id_categoria = p_q.id_categoria
           WHERE dv_q.id_venta = v.id_venta
             AND (
               p_q.descripcion LIKE ?
-              OR p_q.detalle LIKE ?
               OR vp_q.codigo_interno LIKE ?
               OR vp_q.codigo_gs1 LIKE ?
-              OR tp_q.nombre LIKE ?
-              OR cat_q.nombre LIKE ?
             )
         )
       )`);
-      params.push(p, p, p, p, p, p, p, p, p, p, p);
+      params.push(p, p, p, p, p, p, p);
     };
 
     if (tokens.length > 1) {
