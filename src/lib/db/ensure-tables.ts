@@ -370,6 +370,46 @@ export async function ensureCustomTables() {
         ), 0.00)) * 0.40, 2);
     `).catch(() => null);
 
+    // Asegurar estructura de stock_producto y movimientos_inventario
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`stock_producto\` (
+        \`id_stock\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        \`id_variante\` BIGINT NOT NULL,
+        \`id_bodega\` INT NOT NULL,
+        \`cantidad\` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+        \`fecha_actualizacion\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_stock_variante_bodega\` (\`id_variante\`, \`id_bodega\`),
+        INDEX \`idx_stock_bodega\` (\`id_bodega\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `).catch(() => null);
+
+    await execute(`
+      CREATE TABLE IF NOT EXISTS \`movimientos_inventario\` (
+        \`id_movimiento\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        \`id_variante\` BIGINT NOT NULL,
+        \`id_bodega\` INT NOT NULL,
+        \`tipo\` VARCHAR(50) NOT NULL,
+        \`cantidad\` DECIMAL(12,2) NOT NULL,
+        \`stock_anterior\` DECIMAL(12,2) NOT NULL,
+        \`stock_nuevo\` DECIMAL(12,2) NOT NULL,
+        \`motivo\` TEXT NULL,
+        \`referencia_tipo\` VARCHAR(50) NULL,
+        \`referencia_id\` BIGINT NULL,
+        \`usuario\` BIGINT NULL,
+        \`fecha\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_mov_variante\` (\`id_variante\`),
+        INDEX \`idx_mov_bodega\` (\`id_bodega\`),
+        INDEX \`idx_mov_fecha\` (\`fecha\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `).catch(() => null);
+
+    // Asegurar que toda variante tenga al menos un registro de stock en la bodega principal
+    await execute(`
+      INSERT IGNORE INTO \`stock_producto\` (\`id_variante\`, \`id_bodega\`, \`cantidad\`, \`fecha_actualizacion\`)
+      SELECT vp.id_variante, 1, 0.00, NOW()
+      FROM \`variantes_producto\` vp;
+    `).catch(() => null);
+
     // Ejecutar conciliación FIFO de abonos y compras a proveedores
     try {
       const { reconcileAllSuppliers } = await import("@/src/services/purchases/reconcile-supplier-payments");

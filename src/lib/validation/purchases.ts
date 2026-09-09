@@ -36,4 +36,10 @@ export type PurchasesFilterParams = {
   month?: string;
   tipoId?: string;
   q?: string;
+  desde?: string;
+  hasta?: string;
+  proveedorId?: string;
+  estadoPago?: string;
+  limit?: number;
 };
+

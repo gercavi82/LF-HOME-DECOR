@@ -24,9 +24,12 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
   }
 
   revalidatePath("/ventas");
+  revalidatePath("/ventas/nueva");
   revalidatePath("/dashboard");
   revalidatePath("/inventario");
   revalidatePath("/inventario/movimientos");
+  revalidatePath("/productos");
+  revalidatePath("/reportes");
   redirect(`/ventas/${sale.id}/comprobante?created=1`);
 }
 

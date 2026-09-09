@@ -21,6 +21,8 @@ export async function createProductAction(_state: ProductActionState, formData: 
   try { id = await createProduct(parsed.data, image); }
   catch (error) { return { error: error instanceof Error ? error.message : "No fue posible crear el producto." }; }
   revalidatePath("/productos");
+  revalidatePath("/inventario");
+  revalidatePath("/ventas/nueva");
   redirect(`/productos/${id}?created=1`);
 }
 

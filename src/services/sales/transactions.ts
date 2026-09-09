@@ -306,13 +306,13 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         ]
       );
 
-      // Descontar inventario de bodegas activas
+      // Descontar inventario de bodegas activas priorizando existencias reales
       const [warehouseStocks] = await conn.execute<RowDataPacket[]>(
         `SELECT sp.id_stock, sp.id_bodega, sp.cantidad 
          FROM stock_producto sp
          JOIN bodegas b ON b.id_bodega = sp.id_bodega
          WHERE sp.id_variante = ? AND (b.id_local = ? OR b.id_local = 1) AND b.activo = 1
-         ORDER BY (b.id_local = ?) DESC, sp.cantidad DESC
+         ORDER BY (b.id_local = ?) DESC, (sp.cantidad > 0) DESC, sp.cantidad DESC
          FOR UPDATE`,
         [line.id_variante, parsed.id_local || 1, parsed.id_local || 1]
       );
@@ -321,7 +321,9 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       for (const stock of (warehouseStocks as unknown as StockRow[]) || []) {
         if (restante <= 0) break;
         const cantDisponible = Number(stock.cantidad);
-        const tomar = Math.min(restante, cantDisponible > 0 ? cantDisponible : restante);
+        if (cantDisponible <= 0) continue; // Priorizar bodegas con existencias positivas
+
+        const tomar = Math.min(restante, cantDisponible);
         const stockNuevo = cantDisponible - tomar;
 
         // Actualizar stock
@@ -330,7 +332,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
           [stockNuevo, stock.id_stock]
         );
 
-        // Registrar movimiento
+        // Registrar movimiento en kardex
         await conn.execute(
           `INSERT INTO movimientos_inventario (
              id_variante,
@@ -355,24 +357,65 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
             saleId,
             context.id_usuario,
           ]
-        ).catch(() => null);
+        ).catch((e) => console.error("Error insertando movimiento de inventario en venta:", e));
 
         restante -= tomar;
       }
 
-      // Si aún queda restante o no existía stock_producto, registrarlo en la bodega principal
+      // Si aún queda restante o no existía stock disponible suficiente en bodegas
       if (restante > 0) {
         const [bodegaRows] = await conn.execute<RowDataPacket[]>(
-          `SELECT id_bodega FROM bodegas WHERE (id_local = ? OR id_local = 1) AND activo = 1 LIMIT 1`,
-          [parsed.id_local || 1]
+          `SELECT id_bodega FROM bodegas WHERE (id_local = ? OR id_local = 1) AND activo = 1 ORDER BY (id_local = ?) DESC, id_bodega ASC LIMIT 1`,
+          [parsed.id_local || 1, parsed.id_local || 1]
         );
         const bodegaId = (bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega || 1;
+
+        const [currRows] = await conn.execute<RowDataPacket[]>(
+          `SELECT id_stock, cantidad FROM stock_producto WHERE id_variante = ? AND id_bodega = ? FOR UPDATE`,
+          [line.id_variante, bodegaId]
+        );
+        const currStock = currRows?.[0] as { id_stock: number; cantidad: number } | undefined;
+        const cantAnterior = currStock ? Number(currStock.cantidad) : 0;
+        const cantNueva = cantAnterior - restante;
+
+        if (currStock) {
+          await conn.execute(
+            `UPDATE stock_producto SET cantidad = ?, fecha_actualizacion = NOW() WHERE id_stock = ?`,
+            [cantNueva, currStock.id_stock]
+          );
+        } else {
+          await conn.execute(
+            `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) VALUES (?, ?, ?, NOW())`,
+            [line.id_variante, bodegaId, cantNueva]
+          );
+        }
+
+        // Registrar remanente en kardex
         await conn.execute(
-          `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) 
-           VALUES (?, ?, 0, NOW()) 
-           ON DUPLICATE KEY UPDATE cantidad = cantidad - ?`,
-          [line.id_variante, bodegaId, restante]
-        ).catch(() => null);
+          `INSERT INTO movimientos_inventario (
+             id_variante,
+             id_bodega,
+             tipo,
+             cantidad,
+             stock_anterior,
+             stock_nuevo,
+             motivo,
+             referencia_tipo,
+             referencia_id,
+             usuario,
+             fecha
+           ) VALUES (?, ?, 'VENTA', ?, ?, ?, ?, 'VENTA', ?, ?, NOW())`,
+          [
+            line.id_variante,
+            bodegaId,
+            restante,
+            cantAnterior,
+            cantNueva,
+            `Venta ${numeroVenta}`,
+            saleId,
+            context.id_usuario,
+          ]
+        ).catch((e) => console.error("Error insertando remanente de kardex en venta:", e));
       }
     }
 

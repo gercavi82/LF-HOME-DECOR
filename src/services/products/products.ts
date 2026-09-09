@@ -488,14 +488,25 @@ export async function createProduct(input: ProductInput, image?: File | null): P
         ]
       );
 
-      // 5. Stock inicial en bodega si se especificó
-      if (parsed.cantidad_inicial && parsed.cantidad_inicial > 0) {
+      // 5. Stock inicial en bodega (asegurar siempre fila en stock_producto)
+      const initialStock = Number(parsed.cantidad_inicial) || 0;
+      await conn.execute(
+        `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
+         VALUES ((SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1), 1, ?, NOW())
+         ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)`,
+        [productId, initialStock]
+      );
+
+      if (initialStock > 0) {
         await conn.execute(
-          `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
-           VALUES ((SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1), 1, ?, NOW())
-           ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)`,
-          [productId, parsed.cantidad_inicial]
-        );
+          `INSERT INTO movimientos_inventario (
+             id_variante, id_bodega, tipo, cantidad, stock_anterior, stock_nuevo, motivo, referencia_tipo, usuario, fecha
+           ) VALUES (
+             (SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1),
+             1, 'ENTRADA_INICIAL', ?, 0, ?, 'Stock inicial al crear producto', 'AJUSTE', ?, NOW()
+           )`,
+          [productId, initialStock, initialStock, context.id_usuario]
+        ).catch(() => null);
       }
     } catch (error: unknown) {
       if (imageUrl) await deleteLocalImage(imageUrl);

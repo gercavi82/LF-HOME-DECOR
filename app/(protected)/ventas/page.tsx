@@ -1,9 +1,10 @@
-import { Eye, History, Plus, ReceiptText, Search, Filter, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Eye, History, Plus, ReceiptText, Search, Filter, RotateCcw, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Alert, Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { listSales } from "@/src/services/sales/sales";
+import { SalesExportMenu } from "@/src/components/sales/sales-export-menu";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
 const dateFormatter = new Intl.DateTimeFormat("es-EC", {
@@ -17,14 +18,40 @@ const PAGE_SIZE = 7;
 export default async function SalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; asesor?: string; local?: string; mes?: string; page?: string; created?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    asesor?: string;
+    local?: string;
+    canal?: string;
+    estado?: string;
+    desde?: string;
+    hasta?: string;
+    mes?: string;
+    page?: string;
+    created?: string;
+  }>;
 }) {
-  const { q = "", asesor = "", local = "", mes = "", page = "1", created } = await searchParams;
+  const {
+    q = "",
+    asesor = "",
+    local = "",
+    canal = "",
+    estado = "",
+    desde = "",
+    hasta = "",
+    mes = "",
+    page = "1",
+    created,
+  } = await searchParams;
 
-  const { sales, summary, advisors, locales, count, context } = await listSales({
+  const { sales, summary, advisors, locales, canales, count, context } = await listSales({
     q,
     asesorId: asesor,
     localId: local,
+    canalId: canal,
+    estado,
+    desde,
+    hasta,
     mes,
   });
 
@@ -32,7 +59,7 @@ export default async function SalesPage({
     context.perfil === "Administrador" ||
     context.permisos.some((permission) => permission.codigo === "VENTA_CREAR");
 
-  const hasActiveFilters = Boolean(q || asesor || local || mes);
+  const hasActiveFilters = Boolean(q || asesor || local || canal || estado || desde || hasta || mes);
 
   // Cálculo de paginación de 7 en 7
   const totalItems = sales.length;
@@ -48,6 +75,10 @@ export default async function SalesPage({
     if (q) params.set("q", q);
     if (asesor) params.set("asesor", asesor);
     if (local) params.set("local", local);
+    if (canal) params.set("canal", canal);
+    if (estado) params.set("estado", estado);
+    if (desde) params.set("desde", desde);
+    if (hasta) params.set("hasta", hasta);
     if (mes) params.set("mes", mes);
     if (newPage > 1) params.set("page", String(newPage));
     const qs = params.toString();
@@ -59,12 +90,15 @@ export default async function SalesPage({
       <PageHeader
         eyebrow="Operación comercial"
         title="Ventas"
-        description="Consulta las ventas registradas, liquidación de comisiones (60/40) y filtros por asesor o local."
+        description="Consulta las ventas registradas, liquidación de comisiones (60/40), exportación de reportes y filtros avanzados."
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <SalesExportMenu
+              currentParams={{ q, asesor, local, canal, estado, desde, hasta, mes }}
+            />
             <Link
               href="/ventas/historial"
-              className="inline-flex h-11 items-center gap-2 rounded-xl border bg-lf-surface px-4 text-sm font-semibold"
+              className="inline-flex h-11 items-center gap-2 rounded-xl border bg-lf-surface px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               <History size={18} /> Historial
             </Link>
@@ -128,9 +162,9 @@ export default async function SalesPage({
 
       {/* Formulario de Filtros Interactivos */}
       <form method="GET" className="mb-5 rounded-2xl border bg-lf-surface p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           {/* Búsqueda por texto */}
-          <div>
+          <div className="xl:col-span-2">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
               Buscar
             </span>
@@ -139,16 +173,78 @@ export default async function SalesPage({
               <input
                 name="q"
                 defaultValue={q}
-                placeholder="Nº venta o cliente..."
+                placeholder="Nº venta, cliente o RUC..."
                 className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none focus:border-lf-terracotta"
               />
             </div>
           </div>
 
+          {/* Fecha Desde */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Desde
+            </span>
+            <input
+              type="date"
+              name="desde"
+              defaultValue={desde}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            />
+          </div>
+
+          {/* Fecha Hasta */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Hasta
+            </span>
+            <input
+              type="date"
+              name="hasta"
+              defaultValue={hasta}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            />
+          </div>
+
+          {/* Filtro Canal de Venta */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Canal
+            </span>
+            <select
+              name="canal"
+              defaultValue={canal}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los canales</option>
+              {canales?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtro Estado */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Estado
+            </span>
+            <select
+              name="estado"
+              defaultValue={estado}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los estados</option>
+              <option value="COMPLETADA">Completada</option>
+              <option value="PENDIENTE">Pendiente</option>
+              <option value="ANULADA">Anulada</option>
+            </select>
+          </div>
+
           {/* Filtro Asesor */}
           <div>
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
-              Asesor / Vendedor
+              Asesor
             </span>
             <select
               name="asesor"
@@ -184,17 +280,17 @@ export default async function SalesPage({
           </div>
 
           {/* Botones de acción */}
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 sm:col-span-2 md:col-span-1 lg:col-span-2 xl:col-span-2">
             <button
               type="submit"
-              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-4 text-sm font-semibold text-white hover:bg-lf-navy-hover"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-4 text-sm font-semibold text-white hover:bg-lf-navy-hover transition"
             >
-              <Filter size={15} /> Filtrar
+              <Filter size={15} /> Aplicar filtros
             </button>
             {hasActiveFilters ? (
               <Link
                 href="/ventas"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-3 text-sm font-medium text-lf-muted hover:text-lf-navy"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-3 text-sm font-medium text-lf-muted hover:text-lf-navy transition"
                 title="Limpiar filtros"
               >
                 <RotateCcw size={15} /> Limpiar

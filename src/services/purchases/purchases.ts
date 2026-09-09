@@ -97,6 +97,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
   summary: PurchasesSummary;
   availableYears: string[];
   availableTypes: Array<{ id: number; nombre: string }>;
+  availableSuppliers: Array<{ id: number; nombre: string }>;
 }> {
   await requireAnyPermission(["COMPRA_VER", "FINANZAS_VER"]);
   await ensureCustomTables().catch(() => null);
@@ -105,6 +106,11 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
   const selectedMonth = filters?.month?.trim() || "";
   const selectedTipoId = filters?.tipoId?.trim() || "";
   const searchQ = filters?.q?.trim() || "";
+  const selectedDesde = filters?.desde?.trim() || "";
+  const selectedHasta = filters?.hasta?.trim() || "";
+  const selectedProveedorId = filters?.proveedorId ? Number(filters.proveedorId) : null;
+  const selectedEstadoPago = filters?.estadoPago?.trim() || "";
+  const limitValue = filters?.limit && filters.limit > 0 ? Math.min(filters.limit, 10000) : 200;
 
   try {
     // 1. Obtener años disponibles de compras
@@ -116,11 +122,17 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       availableYears.push("2026");
     }
 
-    // 2. Obtener tipos de productos disponibles
-    const typeRows = await query<{ id: number; nombre: string }>(
-      `SELECT id_tipo AS id, nombre FROM tipos_producto WHERE activo = 1 ORDER BY nombre ASC`
-    ).catch(() => []);
+    // 2. Obtener tipos de productos disponibles y proveedores
+    const [typeRows, supplierRows] = await Promise.all([
+      query<{ id: number; nombre: string }>(
+        `SELECT id_tipo AS id, nombre FROM tipos_producto WHERE activo = 1 ORDER BY nombre ASC`
+      ).catch(() => []),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_proveedor AS id, nombre FROM proveedores WHERE activo = 1 ORDER BY nombre ASC`
+      ).catch(() => []),
+    ]);
     const availableTypes = (typeRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) }));
+    const availableSuppliers = (supplierRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) }));
 
     // 3. Query base de compras leyendo directamente las columnas de liquidación
     let sql = `
@@ -152,6 +164,31 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
 
     const whereClauses: string[] = [];
     const params: unknown[] = [];
+
+    if (selectedDesde && /^\d{4}-\d{2}-\d{2}$/.test(selectedDesde)) {
+      whereClauses.push(`c.fecha >= ?`);
+      params.push(`${selectedDesde} 00:00:00`);
+    }
+
+    if (selectedHasta && /^\d{4}-\d{2}-\d{2}$/.test(selectedHasta)) {
+      whereClauses.push(`c.fecha <= ?`);
+      params.push(`${selectedHasta} 23:59:59`);
+    }
+
+    if (selectedProveedorId && selectedProveedorId > 0) {
+      whereClauses.push(`c.id_proveedor = ?`);
+      params.push(selectedProveedorId);
+    }
+
+    if (selectedEstadoPago && selectedEstadoPago !== "TODOS") {
+      if (selectedEstadoPago === "PAGADA") {
+        whereClauses.push(`(c.estado_pago = 'PAGADA' OR (COALESCE(c.saldo_pendiente, 0) <= 0.01 AND c.total > 0))`);
+      } else if (selectedEstadoPago === "ABONO_PARCIAL") {
+        whereClauses.push(`(c.estado_pago = 'ABONO_PARCIAL' OR (COALESCE(c.total_abonado, 0) > 0.01 AND COALESCE(c.saldo_pendiente, c.total) > 0.01))`);
+      } else if (selectedEstadoPago === "PENDIENTE") {
+        whereClauses.push(`(COALESCE(c.total_abonado, 0) <= 0.01 AND (c.estado_pago = 'PENDIENTE' OR c.estado_pago IS NULL))`);
+      }
+    }
 
     if (selectedYear) {
       whereClauses.push(`DATE_FORMAT(c.fecha, '%Y') = ?`);
@@ -193,7 +230,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
 
     sql += `
       ORDER BY c.fecha DESC, c.id_compra DESC
-      LIMIT 200
+      LIMIT ${limitValue}
     `;
 
     let rows = await query<PurchaseRowRaw>(sql, params).catch(() => []);
@@ -297,6 +334,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       summary: { total, totalPagado, totalAplicado, depositosDisponibles, totalPendiente, unidades, count, promedio },
       availableYears,
       availableTypes,
+      availableSuppliers,
     };
   } catch (error) {
     console.error("listPurchases ERROR:", error);
@@ -305,6 +343,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       summary: { total: 0, totalPagado: 0, totalAplicado: 0, depositosDisponibles: 0, totalPendiente: 0, unidades: 0, count: 0, promedio: 0 },
       availableYears: [],
       availableTypes: [],
+      availableSuppliers: [],
     };
   }
 }

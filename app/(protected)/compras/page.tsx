@@ -5,6 +5,7 @@ import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { listPurchases, listPurchasePayments, getPurchaseCatalogs } from "@/src/services/purchases/purchases";
 import { PurchasePaymentModal } from "@/src/components/purchases/payment-modal";
+import { PurchasesExportMenu } from "@/src/components/purchases/purchases-export-menu";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
 const dateFormatter = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" });
@@ -27,22 +28,51 @@ const MONTHS_LIST = [
 export default async function PurchasesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ anio?: string; mes?: string; tipo?: string; q?: string; auto_abono?: string; created?: string; updated?: string }>;
+  searchParams: Promise<{
+    anio?: string;
+    mes?: string;
+    tipo?: string;
+    q?: string;
+    desde?: string;
+    hasta?: string;
+    proveedor?: string;
+    estadoPago?: string;
+    auto_abono?: string;
+    created?: string;
+    updated?: string;
+  }>;
 }) {
-  const { anio = "", mes = "", tipo = "", q = "", auto_abono, created, updated } = await searchParams;
+  const {
+    anio = "",
+    mes = "",
+    tipo = "",
+    q = "",
+    desde = "",
+    hasta = "",
+    proveedor = "",
+    estadoPago = "",
+    auto_abono,
+    created,
+    updated,
+  } = await searchParams;
 
-  const [{ purchases, summary, availableYears, availableTypes }, purchasePayments, catalogs] = await Promise.all([
-    listPurchases({
-      year: anio,
-      month: mes,
-      tipoId: tipo,
-      q,
-    }),
-    listPurchasePayments(),
-    getPurchaseCatalogs(),
-  ]);
+  const [{ purchases, summary, availableYears, availableTypes, availableSuppliers }, purchasePayments, catalogs] =
+    await Promise.all([
+      listPurchases({
+        year: anio,
+        month: mes,
+        tipoId: tipo,
+        q,
+        desde,
+        hasta,
+        proveedorId: proveedor,
+        estadoPago,
+      }),
+      listPurchasePayments(),
+      getPurchaseCatalogs(),
+    ]);
 
-  const hasActiveFilters = Boolean(anio || mes || tipo || q);
+  const hasActiveFilters = Boolean(anio || mes || tipo || q || desde || hasta || proveedor || estadoPago);
 
   // Lista de compras para el modal de abonos
   const purchaseOptions = purchases.map((c) => ({
@@ -67,6 +97,9 @@ export default async function PurchasesPage({
         description="Registro histórico de compras a proveedores, cruce FIFO de abonos y saldos pendientes."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <PurchasesExportMenu
+              currentParams={{ q, desde, hasta, proveedor, estadoPago, anio, mes, tipo }}
+            />
             <Link
               href="/compras/nueva"
               className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-lf-navy px-3 text-xs font-semibold text-white hover:bg-lf-navy-hover transition shadow-sm"
@@ -138,11 +171,11 @@ export default async function PurchasesPage({
         </Card>
       </div>
 
-      {/* Barra de Filtros por Año, Mes, Tipo y Búsqueda */}
+      {/* Barra de Filtros por Rango de Fechas, Proveedor, Estado Pago, Tipo, Año, Mes y Búsqueda */}
       <form method="GET" className="mb-6 rounded-2xl border bg-lf-surface p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
           {/* Búsqueda */}
-          <div>
+          <div className="xl:col-span-2">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
               Buscar
             </span>
@@ -157,48 +190,72 @@ export default async function PurchasesPage({
             </div>
           </div>
 
-          {/* Filtro Año */}
+          {/* Fecha Desde */}
           <div>
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
-              Año
+              Desde
+            </span>
+            <input
+              type="date"
+              name="desde"
+              defaultValue={desde}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            />
+          </div>
+
+          {/* Fecha Hasta */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Hasta
+            </span>
+            <input
+              type="date"
+              name="hasta"
+              defaultValue={hasta}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            />
+          </div>
+
+          {/* Filtro Proveedor */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Proveedor
             </span>
             <select
-              name="anio"
-              defaultValue={anio}
+              name="proveedor"
+              defaultValue={proveedor}
               className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
             >
-              <option value="">Todos los años</option>
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
+              <option value="">Todos los proveedores</option>
+              {availableSuppliers?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Filtro Mes */}
+          {/* Filtro Estado de Pago */}
           <div>
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
-              Mes
+              Estado Pago
             </span>
             <select
-              name="mes"
-              defaultValue={mes}
+              name="estadoPago"
+              defaultValue={estadoPago}
               className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
             >
-              <option value="">Todos los meses</option>
-              {MONTHS_LIST.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
+              <option value="">Todos los estados</option>
+              <option value="PAGADA">Pagadas</option>
+              <option value="ABONO_PARCIAL">Abono Parcial</option>
+              <option value="PENDIENTE">Pendientes</option>
             </select>
           </div>
 
           {/* Filtro Tipo de Producto */}
           <div>
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
-              Tipo de Producto
+              Tipo
             </span>
             <select
               name="tipo"
@@ -215,20 +272,20 @@ export default async function PurchasesPage({
           </div>
 
           {/* Botones de acción */}
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 sm:col-span-2 md:col-span-1 lg:col-span-2 xl:col-span-1">
             <button
               type="submit"
-              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-4 text-sm font-semibold text-white hover:bg-lf-navy-hover"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-3 text-sm font-semibold text-white hover:bg-lf-navy-hover transition"
             >
               <Filter size={15} /> Filtrar
             </button>
             {hasActiveFilters ? (
               <Link
                 href="/compras"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-3 text-sm font-medium text-lf-muted hover:text-lf-navy"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-2.5 text-sm font-medium text-lf-muted hover:text-lf-navy transition"
                 title="Limpiar filtros"
               >
-                <RotateCcw size={15} /> Limpiar
+                <RotateCcw size={15} />
               </Link>
             ) : null}
           </div>

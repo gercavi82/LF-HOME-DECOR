@@ -144,7 +144,7 @@ export function SaleWorkspace({
 
   const availableProducts = useMemo(() => {
     return products.filter((product) => {
-      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 10;
+      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0;
       return stock > 0;
     });
   }, [products, locationId]);
@@ -256,7 +256,7 @@ export function SaleWorkspace({
 
   const addProduct = useCallback(
     (product: SaleProduct) => {
-      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 99;
+      const stock = product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0;
       setCart((current) => {
         const existing = current.find((item) => item.id_variante === product.id_variante);
         if (existing && existing.cantidad >= stock) {
@@ -294,7 +294,7 @@ export function SaleWorkspace({
     setCart((current) =>
       current.flatMap((item) => {
         if (item.id_variante !== id) return [item];
-        const stock = item.stockPorLocal[locationId] ?? item.stockPorLocal[1] ?? 99;
+        const stock = item.stockPorLocal[locationId] ?? item.stockPorLocal[1] ?? 0;
         if (next <= 0) return [];
         if (next > stock) {
           setMessage(`Stock insuficiente. Disponible: ${stock}.`);
@@ -363,7 +363,7 @@ export function SaleWorkspace({
                     <span className="block font-mono text-xs text-lf-muted">
                       {product.codigo_interno}
                       {product.codigo_gs1 ? ` · GS1 ${product.codigo_gs1}` : ""} · Stock{" "}
-                      {product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 10}
+                      {product.stockPorLocal[locationId] ?? product.stockPorLocal[1] ?? 0}
                     </span>
                   </span>
                   <span className="shrink-0 font-bold text-lf-terracotta">{currency.format(product.precio)}</span>

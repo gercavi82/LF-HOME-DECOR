@@ -31,7 +31,12 @@ export type SalesFilterParams = {
   q?: string;
   asesorId?: string;
   localId?: string;
+  canalId?: string;
+  estado?: string;
+  desde?: string;
+  hasta?: string;
   mes?: string;
+  limit?: number;
 };
 
 export type SalesSummary = {
@@ -147,6 +152,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   summary: SalesSummary;
   advisors: Array<{ id: number; nombre: string }>;
   locales: Array<{ id: number; nombre: string }>;
+  canales: Array<{ id: number; nombre: string }>;
   count: number;
   context: AuthContext;
 }> {
@@ -158,7 +164,12 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   const normalized = filterParams.q ? cleanSearch(filterParams.q) : "";
   const selectedAsesorId = filterParams.asesorId ? Number(filterParams.asesorId) : null;
   const selectedLocalId = filterParams.localId ? Number(filterParams.localId) : null;
+  const selectedCanalId = filterParams.canalId ? Number(filterParams.canalId) : null;
+  const selectedEstado = filterParams.estado?.trim() || "";
+  const selectedDesde = filterParams.desde?.trim() || "";
+  const selectedHasta = filterParams.hasta?.trim() || "";
   const selectedMes = filterParams.mes?.trim() || "";
+  const limitValue = filterParams.limit && filterParams.limit > 0 ? Math.min(filterParams.limit, 10000) : 150;
 
   await ensureCustomTables().catch(() => null);
 
@@ -205,6 +216,26 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     params.push(selectedAsesorId);
   }
 
+  if (selectedCanalId && selectedCanalId > 0) {
+    whereClauses.push(`v.id_canal = ?`);
+    params.push(selectedCanalId);
+  }
+
+  if (selectedEstado && selectedEstado !== "TODOS") {
+    whereClauses.push(`v.estado = ?`);
+    params.push(selectedEstado);
+  }
+
+  if (selectedDesde && validDate.test(selectedDesde)) {
+    whereClauses.push(`v.fecha >= ?`);
+    params.push(`${selectedDesde} 00:00:00`);
+  }
+
+  if (selectedHasta && validDate.test(selectedHasta)) {
+    whereClauses.push(`v.fecha <= ?`);
+    params.push(`${selectedHasta} 23:59:59`);
+  }
+
   if (selectedMes && /^\d{4}-\d{2}$/.test(selectedMes)) {
     whereClauses.push(`DATE_FORMAT(v.fecha, '%Y-%m') = ?`);
     params.push(selectedMes);
@@ -219,7 +250,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     sql += ` WHERE ` + whereClauses.join(" AND ");
   }
 
-  sql += ` ORDER BY v.fecha DESC LIMIT 150`;
+  sql += ` ORDER BY v.fecha DESC LIMIT ${limitValue}`;
 
   try {
     let expenseSql = `SELECT COALESCE(SUM(monto), 0) AS total_gastos FROM gastos WHERE activo = 1`;
@@ -228,12 +259,20 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       expenseSql += ` AND DATE_FORMAT(fecha, '%Y-%m') = ?`;
       expenseParams.push(selectedMes);
     }
+    if (selectedDesde && validDate.test(selectedDesde)) {
+      expenseSql += ` AND fecha >= ?`;
+      expenseParams.push(selectedDesde);
+    }
+    if (selectedHasta && validDate.test(selectedHasta)) {
+      expenseSql += ` AND fecha <= ?`;
+      expenseParams.push(selectedHasta);
+    }
     if (selectedLocalId && selectedLocalId > 0) {
       expenseSql += ` AND (id_local = ? OR id_local IS NULL)`;
       expenseParams.push(selectedLocalId);
     }
 
-    const [rows, advisorRows, localRows, expenseRows] = await Promise.all([
+    const [rows, advisorRows, localRows, channelRows, expenseRows] = await Promise.all([
       query<SaleListRowRaw & { costo_total: number; utilidad: number; comision_asesor: number; comision_local: number }>(sql, params),
       query<{ id: number; nombre: string }>(
         `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
@@ -241,6 +280,9 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       query<{ id: number; nombre: string }>(
         `SELECT id_local AS id, nombre FROM locales WHERE activo = 1 ORDER BY nombre ASC`
       ),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_canal AS id, nombre FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
+      ).catch(() => []),
       query<{ total_gastos: number }>(expenseSql, expenseParams).catch(() => [{ total_gastos: 0 }]),
     ]);
 
@@ -281,6 +323,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       summary,
       advisors: (advisorRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
       locales: (localRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
+      canales: (channelRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
       count: mapped.length,
       context,
     };
@@ -761,14 +804,16 @@ export async function getSaleWorkspaceContext() {
 
     const productMap = new Map((products ?? []).map((p) => [p.id_producto, p]));
 
-    const warehouseLocationMap = new Map((warehouses ?? []).map((w) => [w.id_bodega, w.id_local]));
+    const warehouseLocationMap = new Map((warehouses ?? []).map((w) => [Number(w.id_bodega), Number(w.id_local)]));
     const stockMapByVariantAndLocal = new Map<number, Record<number, number>>();
     for (const s of stocks ?? []) {
-      const localId = warehouseLocationMap.get(s.id_bodega) || 1;
-      if (!stockMapByVariantAndLocal.has(s.id_variante)) {
-        stockMapByVariantAndLocal.set(s.id_variante, {});
+      const variantId = Number(s.id_variante);
+      const bodegaId = Number(s.id_bodega);
+      const localId = warehouseLocationMap.get(bodegaId) || 1;
+      if (!stockMapByVariantAndLocal.has(variantId)) {
+        stockMapByVariantAndLocal.set(variantId, {});
       }
-      const rec = stockMapByVariantAndLocal.get(s.id_variante)!;
+      const rec = stockMapByVariantAndLocal.get(variantId)!;
       rec[localId] = (rec[localId] || 0) + Number(s.cantidad || 0);
     }
 
@@ -787,7 +832,7 @@ export async function getSaleWorkspaceContext() {
         producto: prod?.descripcion || "Producto",
         id_categoria: prod?.id_categoria || 1,
         id_tipo: prod?.id_tipo || 1,
-        stockPorLocal: stockObj && Object.keys(stockObj).length > 0 ? stockObj : { 1: 10 },
+        stockPorLocal: stockObj && Object.keys(stockObj).length > 0 ? stockObj : { 1: 0 },
       };
     });
 
