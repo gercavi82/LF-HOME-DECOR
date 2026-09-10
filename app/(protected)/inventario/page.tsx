@@ -5,6 +5,7 @@ import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { getInventory, type InventoryStatus } from "@/src/services/inventory/inventory";
 import { getAuthContext, ROLE_NAMES } from "@/src/services/auth/authorization";
+import { InventoryExportMenu } from "@/src/components/inventory/inventory-export-menu";
 
 const statusPresentation: Record<InventoryStatus, { label: string; variant: "success" | "warning" | "danger" }> = {
   DISPONIBLE: { label: "Disponible", variant: "success" },
@@ -21,7 +22,18 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const [inventory, context] = await Promise.all([getInventory(q, estado), getAuthContext()]);
   const canAdjust = context?.perfil === ROLE_NAMES.ADMINISTRADOR || context?.permisos.some((permission) => permission.codigo === "INVENTARIO_AJUSTAR");
   return <ContentContainer>
-    <PageHeader eyebrow="Control de existencias" title="Inventario" description="Consulta existencias y alertas por producto, variante y bodega." actions={<div className="flex gap-2"><Link href="/inventario/movimientos" className="inline-flex h-11 items-center gap-2 rounded-xl border bg-lf-surface px-4 text-sm font-semibold hover:bg-lf-surface-muted"><History size={17} /> Movimientos</Link>{canAdjust ? <Link href="/inventario/ajustes/nuevo" className="inline-flex h-11 items-center gap-2 rounded-xl bg-lf-terracotta px-4 text-sm font-semibold text-white hover:bg-lf-terracotta-hover"><Plus size={17} /> Nuevo ajuste</Link> : null}</div>} />
+    <PageHeader
+      eyebrow="Control de existencias"
+      title="Inventario"
+      description="Consulta existencias y alertas por producto, variante y bodega."
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <InventoryExportMenu currentParams={{ q, estado }} />
+          <Link href="/inventario/movimientos" className="inline-flex h-11 items-center gap-2 rounded-xl border bg-lf-surface px-4 text-sm font-semibold hover:bg-lf-surface-muted"><History size={17} /> Movimientos</Link>
+          {canAdjust ? <Link href="/inventario/ajustes/nuevo" className="inline-flex h-11 items-center gap-2 rounded-xl bg-lf-terracotta px-4 text-sm font-semibold text-white hover:bg-lf-terracotta-hover"><Plus size={17} /> Nuevo ajuste</Link> : null}
+        </div>
+      }
+    />
     <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <SummaryCard label="Registros de stock" value={inventory.summary.total} icon={Boxes} tone="bg-lf-navy/10 text-lf-navy" />
       <SummaryCard label="Disponibles" value={inventory.summary.available} icon={CheckCircle2} tone="bg-[var(--lf-success-soft)] text-lf-success" />

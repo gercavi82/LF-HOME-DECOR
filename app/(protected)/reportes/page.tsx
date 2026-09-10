@@ -6,6 +6,7 @@ import { getFinancialReport } from "@/src/services/reports/reports";
 import { listCommissionPayments } from "@/src/services/commissions/commissions";
 import { CommissionPaymentModal } from "@/src/components/commissions/payment-modal";
 import { ReportsView } from "@/src/components/reports/reports-view";
+import { ReportsExportMenu } from "@/src/components/reports/reports-export-menu";
 
 export default async function ReportsPage({
   searchParams,
@@ -37,6 +38,7 @@ export default async function ReportsPage({
         description="Liquidación de comisiones segregada por pestañas: Asesores (60%), Local (40%) y Gastos, Evolución Mensual y Ventas por Producto."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ReportsExportMenu currentParams={{ anio, mes, tipo }} />
             <CommissionPaymentModal advisors={advisorOptions} />
             <Link
               href="/gastos"

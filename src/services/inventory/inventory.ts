@@ -45,7 +45,7 @@ function sanitizeSearch(value: string) {
   return value.normalize("NFKC").replace(/[^\p{L}\p{N}._\-\s]/gu, "").trim().slice(0, 80);
 }
 
-export async function getInventory(search = "", requestedStatus = "") {
+export async function getInventory(search = "", requestedStatus = "", limit = 200) {
   await requirePermission("INVENTARIO_VER");
   const normalized = sanitizeSearch(search);
   const parsedStatus = inventoryStatusSchema.safeParse(requestedStatus);
@@ -104,7 +104,8 @@ export async function getInventory(search = "", requestedStatus = "") {
     sql += ` AND ` + whereClauses.join(" AND ");
   }
 
-  sql += ` ORDER BY p.descripcion ASC, b.nombre ASC LIMIT 200`;
+  const limitValue = Math.min(Math.max(1, limit), 20000);
+  sql += ` ORDER BY p.descripcion ASC, b.nombre ASC LIMIT ${limitValue}`;
 
   try {
     const [itemsResult, countsResult] = await Promise.all([
