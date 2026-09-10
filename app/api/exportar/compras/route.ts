@@ -6,7 +6,26 @@ import { listPurchases } from "@/src/services/purchases/purchases";
 
 export const dynamic = "force-dynamic";
 
+function filterProductsByQuery(rawProducts: string | null | undefined, query: string): string {
+  if (!rawProducts) return "";
+  const allItems = rawProducts.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean);
+  const cleanQ = (query || "").trim();
+  if (!cleanQ) return allItems.join(" | ");
+
+  const normQ = cleanQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const terms = normQ.split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return allItems.join(" | ");
+
+  const matched = allItems.filter((item) => {
+    const normItem = item.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return terms.every((t) => normItem.includes(t));
+  });
+
+  return matched.length > 0 ? matched.join(" | ") : allItems.join(" | ");
+}
+
 export async function GET(request: NextRequest) {
+
   try {
     const { searchParams } = new URL(request.url);
     const formato = (searchParams.get("formato") || "xlsx").toLowerCase();
@@ -60,21 +79,24 @@ export async function GET(request: NextRequest) {
         return str;
       };
 
-      const rows = purchases.map((p) => [
-        p.id_compra,
-        escapeCsv(p.numero_compra),
-        escapeCsv(p.fecha),
-        escapeCsv(p.proveedor),
-        escapeCsv(p.producto || ""),
-        p.unidades,
-        p.subtotal.toFixed(2),
-        p.iva.toFixed(2),
-        p.total.toFixed(2),
-        p.total_pagado.toFixed(2),
-        p.saldo_pendiente.toFixed(2),
-        escapeCsv(p.estado_pago),
-        escapeCsv(p.observaciones ?? ""),
-      ]);
+      const rows = purchases.map((p) => {
+        const displayProd = filterProductsByQuery(p.producto, q);
+        return [
+          p.id_compra,
+          escapeCsv(p.numero_compra),
+          escapeCsv(p.fecha),
+          escapeCsv(p.proveedor),
+          escapeCsv(displayProd),
+          p.unidades,
+          p.subtotal.toFixed(2),
+          p.iva.toFixed(2),
+          p.total.toFixed(2),
+          p.total_pagado.toFixed(2),
+          p.saldo_pendiente.toFixed(2),
+          escapeCsv(p.estado_pago),
+          escapeCsv(p.observaciones ?? ""),
+        ];
+      });
 
       const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
 
@@ -94,7 +116,7 @@ export async function GET(request: NextRequest) {
         "Nº Factura / Compra": p.numero_compra,
         "Fecha": p.fecha,
         "Proveedor": p.proveedor,
-        "Productos": p.producto || "",
+        "Productos": filterProductsByQuery(p.producto, q),
         "Cant. Unidades": p.unidades,
         "Subtotal ($)": Number(p.subtotal.toFixed(2)),
         "IVA ($)": Number(p.iva.toFixed(2)),
@@ -227,17 +249,20 @@ export async function GET(request: NextRequest) {
         "Estado Pago",
       ];
 
-      const tableData = purchases.map((p) => [
-        p.numero_compra,
-        p.fecha ? p.fecha.slice(0, 10) : "-",
-        p.proveedor.length > 25 ? `${p.proveedor.slice(0, 23)}...` : p.proveedor,
-        (p.producto || "").length > 35 ? `${(p.producto || "").slice(0, 32)}...` : (p.producto || "-"),
-        p.unidades,
-        `$${p.total.toFixed(2)}`,
-        `$${p.total_pagado.toFixed(2)}`,
-        `$${p.saldo_pendiente.toFixed(2)}`,
-        p.estado_pago,
-      ]);
+      const tableData = purchases.map((p) => {
+        const prodFiltered = filterProductsByQuery(p.producto, q);
+        return [
+          p.numero_compra,
+          p.fecha ? p.fecha.slice(0, 10) : "-",
+          p.proveedor.length > 25 ? `${p.proveedor.slice(0, 23)}...` : p.proveedor,
+          prodFiltered.length > 35 ? `${prodFiltered.slice(0, 32)}...` : (prodFiltered || "-"),
+          p.unidades,
+          `$${p.total.toFixed(2)}`,
+          `$${p.total_pagado.toFixed(2)}`,
+          `$${p.saldo_pendiente.toFixed(2)}`,
+          p.estado_pago,
+        ];
+      });
 
       autoTable(doc, {
         startY: 138,

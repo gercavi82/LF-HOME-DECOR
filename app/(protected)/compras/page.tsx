@@ -25,7 +25,34 @@ const MONTHS_LIST = [
   { value: "12", label: "12 - Diciembre" },
 ];
 
+function filterProductsByQuery(rawProducts: string | null | undefined, query: string) {
+  if (!rawProducts) return { items: [] as string[], isFiltered: false, totalCount: 0 };
+  const allItems = rawProducts.split(/\s*\|\s*/).map((s) => s.trim()).filter(Boolean);
+  const cleanQ = (query || "").trim();
+  if (!cleanQ) {
+    return { items: allItems, isFiltered: false, totalCount: allItems.length };
+  }
+
+  const normQ = cleanQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const terms = normQ.split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return { items: allItems, isFiltered: false, totalCount: allItems.length };
+  }
+
+  const matched = allItems.filter((item) => {
+    const normItem = item.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return terms.every((t) => normItem.includes(t));
+  });
+
+  if (matched.length > 0) {
+    return { items: matched, isFiltered: matched.length < allItems.length, totalCount: allItems.length };
+  }
+
+  return { items: allItems, isFiltered: false, totalCount: allItems.length };
+}
+
 export default async function PurchasesPage({
+
   searchParams,
 }: {
   searchParams: Promise<{
@@ -337,18 +364,29 @@ export default async function PurchasesPage({
                       </TableCell>
                       <TableCell className="min-w-[240px] max-w-sm text-xs">
                         <div className="flex flex-col gap-1 py-1">
-                          {compra.producto ? (
-                            compra.producto.split(/\s*\|\s*/).map((item, i) => (
-                              <span
-                                key={i}
-                                className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-0.5 text-xs font-medium text-slate-800"
-                              >
-                                {item}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-lf-muted">—</span>
-                          )}
+                          {(() => {
+                            const { items, isFiltered, totalCount } = filterProductsByQuery(compra.producto, q);
+                            if (items.length === 0) {
+                              return <span className="text-lf-muted">—</span>;
+                            }
+                            return (
+                              <>
+                                {items.map((item, i) => (
+                                  <span
+                                    key={i}
+                                    className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-0.5 text-xs font-medium text-slate-800"
+                                  >
+                                    {item}
+                                  </span>
+                                ))}
+                                {isFiltered && (
+                                  <span className="text-[10px] text-slate-400 font-medium pl-0.5">
+                                    (Mostrando solo el producto buscado · {items.length} de {totalCount} en factura)
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold text-lf-navy font-mono text-sm">
