@@ -35,6 +35,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+logs/
+*.log
+stderr.log
+
 
 # env files (strict: never commit secrets, allow only .env.example)
 .env
