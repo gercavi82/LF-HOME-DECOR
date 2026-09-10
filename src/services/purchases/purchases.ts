@@ -239,12 +239,14 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     const itemRows = await query<{
       id_compra: number;
       descripcion: string;
+      id_tipo: number;
       cantidad_total: number;
       precio_unitario: number;
     }>(`
       SELECT 
         dc.id_compra,
         prod.descripcion,
+        prod.id_tipo,
         SUM(dc.cantidad) AS cantidad_total,
         dc.precio_unitario
       FROM detalle_compras dc
@@ -252,21 +254,75 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       JOIN variantes_producto vp ON vp.id_variante = dc.id_variante
       JOIN productos prod ON prod.id_producto = vp.id_producto
       WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
-      GROUP BY dc.id_compra, prod.descripcion, dc.precio_unitario
+      GROUP BY dc.id_compra, prod.descripcion, prod.id_tipo, dc.precio_unitario
       ORDER BY prod.descripcion ASC
     `).catch(() => []);
 
-    const itemsByPurchaseMap = new Map<number, string[]>();
+    // Preparar términos de búsqueda para productos
+    const normSearchQ = searchQ.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const searchTerms = normSearchQ.split(/\s+/).filter(Boolean);
+    const hasTipoFilter = Boolean(selectedTipoId && Number(selectedTipoId) > 0);
+    const targetTipoId = hasTipoFilter ? Number(selectedTipoId) : null;
+
+    const matchesSearchTerms = (text: string) => {
+      if (searchTerms.length === 0) return true;
+      const normText = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      return searchTerms.every((term) => {
+        if (normText.includes(term)) return true;
+        // Soporte para plurales simples en español (ej: "ovejeros" coincide con "ovejero")
+        if (term.endsWith("s") && term.length > 3 && normText.includes(term.slice(0, -1))) {
+          return true;
+        }
+        return false;
+      });
+    };
+
+    // Agrupar items por compra
+    const rawItemsByPurchase = new Map<
+      number,
+      Array<{ descripcion: string; id_tipo: number; cantidad_total: number; precio_unitario: number }>
+    >();
     for (const it of itemRows ?? []) {
       const purchaseId = Number(it.id_compra);
-      if (!itemsByPurchaseMap.has(purchaseId)) {
-        itemsByPurchaseMap.set(purchaseId, []);
+      if (!rawItemsByPurchase.has(purchaseId)) {
+        rawItemsByPurchase.set(purchaseId, []);
       }
-      const unitPriceStr = Number(it.precio_unitario || 0).toFixed(2);
-      itemsByPurchaseMap.get(purchaseId)!.push(
-        `${it.descripcion} (${it.cantidad_total}u a $${unitPriceStr} c/u)`
-      );
+      rawItemsByPurchase.get(purchaseId)!.push({
+        descripcion: String(it.descripcion),
+        id_tipo: Number(it.id_tipo),
+        cantidad_total: Number(it.cantidad_total || 0),
+        precio_unitario: Number(it.precio_unitario || 0),
+      });
     }
+
+    const itemsByPurchaseMap = new Map<number, string[]>();
+    for (const [purchaseId, items] of rawItemsByPurchase.entries()) {
+      let candidateItems = items;
+
+      // 1. Si se filtró por Tipo en el selector, mostrar solo los productos de ese tipo
+      if (hasTipoFilter && targetTipoId) {
+        const filteredByTipo = candidateItems.filter((it) => it.id_tipo === targetTipoId);
+        if (filteredByTipo.length > 0) {
+          candidateItems = filteredByTipo;
+        }
+      }
+
+      // 2. Si se ingresó búsqueda de texto (ej: "ovejero plus"), mostrar solo los productos coincidentes
+      if (searchTerms.length > 0) {
+        const filteredBySearch = candidateItems.filter((it) => matchesSearchTerms(it.descripcion));
+        if (filteredBySearch.length > 0) {
+          candidateItems = filteredBySearch;
+        }
+      }
+
+      const formattedList = candidateItems.map((it) => {
+        const unitPriceStr = Number(it.precio_unitario || 0).toFixed(2);
+        return `${it.descripcion} (${it.cantidad_total}u a $${unitPriceStr} c/u)`;
+      });
+
+      itemsByPurchaseMap.set(purchaseId, formattedList);
+    }
+
 
     const purchases: PurchaseItem[] = (rows ?? []).map((r) => {
       const total = Number(r.total) || 0;
