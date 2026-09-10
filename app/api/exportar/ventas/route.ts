@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -142,7 +144,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 3. FORMATO PDF (DISEÑO CORPORATIVO L&F HOME DECOR)
+    // 3. FORMATO PDF (DISEÑO CORPORATIVO MI HOGAR Y CONFORT)
     if (formato === "pdf") {
       const doc = new jsPDF({
         orientation: "landscape",
@@ -152,19 +154,34 @@ export async function GET(request: NextRequest) {
 
       const pageWidth = doc.internal.pageSize.getWidth();
 
+      let logoBase64: string | null = null;
+      try {
+        const logoPath = path.join(process.cwd(), "public", "logo", "mi-hogar-y-confort.png");
+        if (fs.existsSync(logoPath)) {
+          logoBase64 = fs.readFileSync(logoPath).toString("base64");
+        }
+      } catch (err) {
+        console.error("Error cargando logo para PDF:", err);
+      }
+
       // Encabezado Corporativo
       doc.setFillColor(27, 37, 89); // #1b2559 Brand Navy
       doc.rect(0, 0, pageWidth, 55, "F");
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.setTextColor(255, 255, 255);
-      doc.text("L&F HOME DECOR", 35, 34);
+      if (logoBase64) {
+        try {
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(35, 6, 64, 43, 3, 3, "F");
+          doc.addImage(logoBase64, "JPEG", 37, 7.5, 60, 40);
+        } catch (imgErr) {
+          console.error("Error renderizando imagen de logo en PDF:", imgErr);
+        }
+      }
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      doc.setTextColor(215, 225, 250);
-      doc.text("Reporte Ejecutivo de Ventas y Comisiones", 210, 34);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Reporte Ejecutivo de Ventas y Comisiones", logoBase64 ? 112 : 35, 34);
 
       const fechaEmision = new Date().toLocaleString("es-EC", {
         timeZone: "America/Guayaquil",
@@ -221,14 +238,14 @@ export async function GET(request: NextRequest) {
         curX += kpiWidth + 8;
       });
 
-      // Tabla de Ventas
+      // Tabla de Ventas (sin columna Local, con Producto al lado de Cantidad)
       const tableHeaders = [
         "Nº Venta",
         "Fecha",
-        "Local",
         "Cliente",
         "Canal",
         "Vendedor",
+        "Producto",
         "Cant.",
         "Total",
         "Com. Asesor",
@@ -236,19 +253,22 @@ export async function GET(request: NextRequest) {
         "Estado",
       ];
 
-      const tableData = sales.map((s) => [
-        s.numero_venta,
-        s.fecha ? s.fecha.slice(0, 16) : "-",
-        s.local,
-        s.cliente.length > 22 ? `${s.cliente.slice(0, 20)}...` : s.cliente,
-        s.canal,
-        s.vendedor.length > 18 ? `${s.vendedor.slice(0, 16)}...` : s.vendedor,
-        s.unidades,
-        `$${s.total.toFixed(2)}`,
-        `$${s.comision_asesor.toFixed(2)}`,
-        `$${s.comision_local.toFixed(2)}`,
-        s.estado,
-      ]);
+      const tableData = sales.map((s) => {
+        const prod = s.productos || "-";
+        return [
+          s.numero_venta,
+          s.fecha ? s.fecha.slice(0, 16) : "-",
+          s.cliente.length > 20 ? `${s.cliente.slice(0, 18)}...` : s.cliente,
+          s.canal,
+          s.vendedor.length > 16 ? `${s.vendedor.slice(0, 14)}...` : s.vendedor,
+          prod.length > 42 ? `${prod.slice(0, 40)}...` : prod,
+          s.unidades,
+          `$${s.total.toFixed(2)}`,
+          `$${s.comision_asesor.toFixed(2)}`,
+          `$${s.comision_local.toFixed(2)}`,
+          s.estado,
+        ];
+      });
 
       autoTable(doc, {
         startY: 138,
@@ -263,21 +283,21 @@ export async function GET(request: NextRequest) {
           halign: "left",
         },
         bodyStyles: {
-          fontSize: 8,
+          fontSize: 7.5,
           textColor: [45, 55, 72],
         },
         columnStyles: {
-          0: { cellWidth: 70, fontStyle: "bold" },
-          1: { cellWidth: 75 },
-          2: { cellWidth: 70 },
-          3: { cellWidth: 110 },
+          0: { cellWidth: 65, fontStyle: "bold" },
+          1: { cellWidth: 65 },
+          2: { cellWidth: 90 },
+          3: { cellWidth: 50 },
           4: { cellWidth: 70 },
-          5: { cellWidth: 90 },
-          6: { cellWidth: 35, halign: "center" },
-          7: { cellWidth: 60, halign: "right", fontStyle: "bold" },
-          8: { cellWidth: 65, halign: "right" },
-          9: { cellWidth: 65, halign: "right" },
-          10: { cellWidth: 60, halign: "center" },
+          // 5: Producto utiliza ancho dinámico (auto)
+          6: { cellWidth: 32, halign: "center" },
+          7: { cellWidth: 52, halign: "right", fontStyle: "bold" },
+          8: { cellWidth: 55, halign: "right" },
+          9: { cellWidth: 55, halign: "right" },
+          10: { cellWidth: 42, halign: "center" },
         },
         alternateRowStyles: {
           fillColor: [248, 250, 252],
@@ -290,7 +310,7 @@ export async function GET(request: NextRequest) {
           doc.setFontSize(8);
           doc.setTextColor(140, 150, 165);
           doc.text(pageStr, pageWidth - 35, doc.internal.pageSize.getHeight() - 15, { align: "right" });
-          doc.text("L&F HOME DECOR - Sistema de Gestión Comercial", 35, doc.internal.pageSize.getHeight() - 15);
+          doc.text("Mi Hogar y Confort - Sistema de Gestión Comercial", 35, doc.internal.pageSize.getHeight() - 15);
         },
       });
 

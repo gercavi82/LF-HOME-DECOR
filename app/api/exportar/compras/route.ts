@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -166,19 +168,34 @@ export async function GET(request: NextRequest) {
 
       const pageWidth = doc.internal.pageSize.getWidth();
 
+      let logoBase64: string | null = null;
+      try {
+        const logoPath = path.join(process.cwd(), "public", "logo", "mi-hogar-y-confort.png");
+        if (fs.existsSync(logoPath)) {
+          logoBase64 = fs.readFileSync(logoPath).toString("base64");
+        }
+      } catch (err) {
+        console.error("Error cargando logo para PDF:", err);
+      }
+
       // Encabezado Corporativo
       doc.setFillColor(27, 37, 89); // #1b2559 Brand Navy
       doc.rect(0, 0, pageWidth, 55, "F");
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.setTextColor(255, 255, 255);
-      doc.text("L&F HOME DECOR", 35, 34);
+      if (logoBase64) {
+        try {
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(35, 6, 64, 43, 3, 3, "F");
+          doc.addImage(logoBase64, "JPEG", 37, 7.5, 60, 40);
+        } catch (imgErr) {
+          console.error("Error renderizando imagen de logo en PDF:", imgErr);
+        }
+      }
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      doc.setTextColor(215, 225, 250);
-      doc.text("Reporte Ejecutivo de Compras a Proveedores", 210, 34);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Reporte Ejecutivo de Compras a Proveedores", logoBase64 ? 112 : 35, 34);
 
       const fechaEmision = new Date().toLocaleString("es-EC", {
         timeZone: "America/Guayaquil",
@@ -301,7 +318,7 @@ export async function GET(request: NextRequest) {
           doc.setFontSize(8);
           doc.setTextColor(140, 150, 165);
           doc.text(pageStr, pageWidth - 35, doc.internal.pageSize.getHeight() - 15, { align: "right" });
-          doc.text("L&F HOME DECOR - Sistema de Gestión de Compras y Proveedores", 35, doc.internal.pageSize.getHeight() - 15);
+          doc.text("Mi Hogar y Confort - Sistema de Gestión de Compras y Proveedores", 35, doc.internal.pageSize.getHeight() - 15);
         },
       });
 
