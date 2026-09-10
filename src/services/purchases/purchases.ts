@@ -15,6 +15,12 @@ import {
   getSupplierAvailableDeposit,
 } from "@/src/services/purchases/reconcile-supplier-payments";
 
+export type PurchaseProductDetail = {
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+};
+
 export type PurchaseItem = {
   id_compra: number;
   id_proveedor: number;
@@ -26,6 +32,8 @@ export type PurchaseItem = {
   total: number;
   unidades: number;
   producto?: string;
+  items_detalle?: PurchaseProductDetail[];
+  unidades_filtradas?: number;
   estado: string;
   observaciones?: string | null;
   usuario?: string;
@@ -296,6 +304,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
     }
 
     const itemsByPurchaseMap = new Map<number, string[]>();
+    const itemsDetailByPurchaseMap = new Map<number, PurchaseProductDetail[]>();
     for (const [purchaseId, items] of rawItemsByPurchase.entries()) {
       let candidateItems = items;
 
@@ -321,8 +330,15 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       });
 
       itemsByPurchaseMap.set(purchaseId, formattedList);
+      itemsDetailByPurchaseMap.set(
+        purchaseId,
+        candidateItems.map((it) => ({
+          descripcion: it.descripcion,
+          cantidad: it.cantidad_total,
+          precio_unitario: it.precio_unitario,
+        }))
+      );
     }
-
 
     const purchases: PurchaseItem[] = (rows ?? []).map((r) => {
       const total = Number(r.total) || 0;
@@ -332,12 +348,14 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       const purchaseId = Number(r.id_compra);
 
       const itemsList = itemsByPurchaseMap.get(purchaseId) || [];
+      const detailsList = itemsDetailByPurchaseMap.get(purchaseId) || [];
+      const sumFilteredUnits = detailsList.reduce((acc: number, d: PurchaseProductDetail) => acc + d.cantidad, 0);
       const consolidatedDesc = itemsList.length > 0 ? itemsList.join(" | ") : (r.producto_desc || "Prendas textiles");
 
       let estadoPago: "PAGADA" | "ABONO_PARCIAL" | "PENDIENTE" = "PENDIENTE";
       if (r.estado_pago === "PAGADA" || (saldo <= 0.005 && total > 0)) {
         estadoPago = "PAGADA";
-      } else if (abonos > 0) {
+        } else if (abonos > 0) {
         estadoPago = "ABONO_PARCIAL";
       }
 
@@ -351,7 +369,9 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
         iva: Number(r.iva) || 0,
         total,
         unidades: Number(r.unidades) || 0,
+        unidades_filtradas: detailsList.length > 0 ? sumFilteredUnits : Number(r.unidades) || 0,
         producto: consolidatedDesc,
+        items_detalle: detailsList,
         estado: r.estado,
         observaciones: r.observaciones ?? null,
         usuario: r.usuario_nombre ?? "Administrador",

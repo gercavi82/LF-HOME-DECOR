@@ -2,7 +2,7 @@ import { CheckCircle2, Eye, Filter, History, Layers, Plus, RotateCcw, Search, Sh
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
-import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
+import { Badge, Card, CardContent, CardHeader, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { listPurchases, listPurchasePayments, getPurchaseCatalogs } from "@/src/services/purchases/purchases";
 import { PurchasePaymentModal } from "@/src/components/purchases/payment-modal";
 import { PurchasesExportMenu } from "@/src/components/purchases/purchases-export-menu";
@@ -84,8 +84,26 @@ export default async function PurchasesPage({
     saldo_pendiente: c.saldo_pendiente,
   }));
 
+  // Resumen acumulado de cantidades por producto de las compras visualizadas
+  const productTotalsMap = new Map<string, number>();
+  for (const c of purchases) {
+    if (c.items_detalle && c.items_detalle.length > 0) {
+      for (const it of c.items_detalle) {
+        const current = productTotalsMap.get(it.descripcion) || 0;
+        productTotalsMap.set(it.descripcion, current + it.cantidad);
+      }
+    }
+  }
+  const productTotalsList = Array.from(productTotalsMap.entries())
+    .map(([nombre, unidades]) => ({ nombre, unidades }))
+    .sort((a, b) => b.unidades - a.unidades);
+
+  const sumUnidadesFiltradas = purchases.reduce(
+    (sum, p) => sum + (p.unidades_filtradas !== undefined ? p.unidades_filtradas : p.unidades),
+    0
+  );
+
   // Totales calculados directamente sobre las filas de la tabla
-  const sumUnidades = purchases.reduce((sum, p) => sum + p.unidades, 0);
   const sumTotal = purchases.reduce((sum, p) => sum + p.total, 0);
   const sumPagado = purchases.reduce((sum, p) => sum + p.total_pagado, 0);
   const sumPendiente = purchases.reduce((sum, p) => sum + p.saldo_pendiente, 0);
@@ -303,7 +321,8 @@ export default async function PurchasesPage({
                   <TableHead>Nº Factura</TableHead>
                   <TableHead>Fecha</TableHead>
                   <TableHead>Proveedor</TableHead>
-                  <TableHead>Producto / Detalle</TableHead>
+                  <TableHead>Producto</TableHead>
+                  <TableHead className="text-center font-bold">Cant. Comprada</TableHead>
                   <TableHead className="text-right font-bold">Total Factura</TableHead>
                   <TableHead className="text-right">Abonado</TableHead>
                   <TableHead className="text-right">Saldo Pendiente</TableHead>
@@ -336,19 +355,54 @@ export default async function PurchasesPage({
                       <TableCell className="text-sm font-medium text-lf-navy">
                         {compra.proveedor}
                       </TableCell>
-                      <TableCell className="min-w-[240px] max-w-sm text-xs">
-                        <div className="flex flex-col gap-1 py-1">
-                          {compra.producto ? (
+                      <TableCell className="min-w-[200px] max-w-sm text-xs">
+                        <div className="flex flex-col gap-1.5 py-1">
+                          {compra.items_detalle && compra.items_detalle.length > 0 ? (
+                            compra.items_detalle.map((item, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1 text-xs font-medium text-slate-800"
+                              >
+                                {item.descripcion}
+                              </span>
+                            ))
+                          ) : compra.producto ? (
                             compra.producto.split(/\s*\|\s*/).map((item, i) => (
                               <span
                                 key={i}
-                                className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-0.5 text-xs font-medium text-slate-800"
+                                className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1 text-xs font-medium text-slate-800"
                               >
                                 {item}
                               </span>
                             ))
                           ) : (
                             <span className="text-lf-muted">—</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center whitespace-nowrap text-xs">
+                        <div className="flex flex-col items-center gap-1.5 py-1">
+                          {compra.items_detalle && compra.items_detalle.length > 0 ? (
+                            <>
+                              {compra.items_detalle.map((item, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-flex h-[26px] items-center justify-center rounded-lg border border-blue-200 bg-blue-50/90 px-2.5 text-xs font-bold text-blue-900 font-mono"
+                                  title={`${item.cantidad} unidades a $${item.precio_unitario.toFixed(2)} c/u`}
+                                >
+                                  {item.cantidad} u
+                                </span>
+                              ))}
+                              {compra.items_detalle.length > 1 && (
+                                <span className="text-[10px] font-bold text-slate-500 font-mono border-t border-slate-200 pt-0.5 px-1">
+                                  Total: {compra.unidades_filtradas ?? compra.unidades} u
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="inline-flex h-[26px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-700 font-mono">
+                              {compra.unidades} u
+                            </span>
                           )}
                         </div>
                       </TableCell>
@@ -410,6 +464,7 @@ export default async function PurchasesPage({
               <tfoot>
                 <tr className="border-t-2 border-lf-navy bg-lf-surface-muted/30 font-bold">
                   <TableCell colSpan={4}>TOTAL GENERAL FACTURAS DE COMPRA</TableCell>
+                  <TableCell className="text-center text-blue-900 font-mono text-sm font-extrabold">{sumUnidadesFiltradas} u</TableCell>
                   <TableCell className="text-right text-lf-navy font-mono text-base">{currency.format(sumTotal)}</TableCell>
                   <TableCell className="text-right text-emerald-700 font-mono text-base">{currency.format(sumPagado)}</TableCell>
                   <TableCell className="text-right text-amber-700 font-mono text-base">{currency.format(sumPendiente)}</TableCell>
@@ -418,6 +473,50 @@ export default async function PurchasesPage({
               </tfoot>
             </Table>
           </TableContainer>
+
+          {/* Resumen de Unidades Compradas por Producto */}
+          {productTotalsList.length > 0 && (
+            <Card className="mb-8 border-slate-200 shadow-sm bg-gradient-to-br from-white to-slate-50/50">
+              <CardHeader className="border-b border-slate-100 py-3.5 px-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                      <Layers size={15} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-lf-navy">
+                        Total por Producto ({productTotalsList.length} producto{productTotalsList.length === 1 ? "" : "s"})
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        Total de unidades compradas acumuladas según los filtros activos.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50/90 px-3 py-1.5 shadow-2xs">
+                    <span className="text-xs font-semibold text-blue-900">Total General:</span>
+                    <span className="font-mono text-sm font-black text-blue-900">{sumUnidadesFiltradas} u</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                  {productTotalsList.map((p, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/90 bg-white p-2.5 shadow-2xs hover:border-blue-300 transition"
+                    >
+                      <span className="text-xs font-medium text-slate-700 line-clamp-2" title={p.nombre}>
+                        {p.nombre}
+                      </span>
+                      <span className="shrink-0 inline-flex items-center justify-center rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1 font-mono text-xs font-black text-blue-900">
+                        {p.unidades} u
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       ) : (
         <Card className="mb-8">
