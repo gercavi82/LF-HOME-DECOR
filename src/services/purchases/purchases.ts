@@ -1,7 +1,9 @@
 import "server-only";
 
-import { query, execute } from "@/src/lib/db/mysql";
+import { query, execute, transaction } from "@/src/lib/db/mysql";
+import type { RowDataPacket } from "mysql2/promise";
 import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
+import { applyStockMovement } from "@/src/services/inventory/apply-stock-movement";
 import {
   purchasePaymentSchema,
   purchaseCreateSchema,
@@ -737,48 +739,79 @@ export async function createPurchase(input: PurchaseCreateInput): Promise<{ idCo
   totalIva = Number(totalIva.toFixed(2));
   const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
 
-  // Insertar cabecera de compra
-  const result = await execute(
-    `INSERT INTO compras (id_proveedor, id_local, id_usuario, numero_compra, fecha, subtotal, iva, total, saldo_pendiente, observaciones, estado, estado_pago)
-     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA', 'PENDIENTE')`,
-    [
-      parsed.id_proveedor,
-      context.id_usuario,
-      parsed.numero_compra,
-      `${parsed.fecha} 10:00:00`,
-      totalSubtotal,
-      totalIva,
-      totalGeneral,
-      totalGeneral,
-      parsed.observaciones || null,
-    ]
-  );
+  const idCompra = await transaction(async (conn) => {
+    // Determinar local y bodega destino de la compra
+    let localId = parsed.id_local || context.id_local || null;
+    if (!localId) {
+      const [localRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id_local FROM locales WHERE activo = 1 ORDER BY id_local ASC LIMIT 1`
+      );
+      localId = Number((localRows?.[0] as { id_local: number } | undefined)?.id_local) || 1;
+    }
 
-  const idCompra = Number(result.insertId);
+    let bodegaId = parsed.id_bodega || null;
+    if (!bodegaId) {
+      const [bodegaRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id_bodega FROM bodegas WHERE id_local = ? AND activo = 1 ORDER BY id_bodega ASC LIMIT 1`,
+        [localId]
+      );
+      bodegaId = Number((bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega) || null;
+      if (!bodegaId) {
+        const [anyBodega] = await conn.execute<RowDataPacket[]>(
+          `SELECT id_bodega FROM bodegas WHERE activo = 1 ORDER BY id_bodega ASC LIMIT 1`
+        );
+        bodegaId = Number((anyBodega?.[0] as { id_bodega: number } | undefined)?.id_bodega);
+      }
+    }
 
-  // Insertar cada item en detalle_compras y actualizar stock
-  for (const it of processedItems) {
-    await execute(
-      `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [idCompra, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+    if (!bodegaId) {
+      throw new Error("No se encontró ninguna bodega activa para recibir la mercadería de la compra.");
+    }
+
+    // Insertar cabecera de compra
+    const [result] = await conn.execute<any>(
+      `INSERT INTO compras (id_proveedor, id_local, id_usuario, numero_compra, fecha, subtotal, iva, total, saldo_pendiente, observaciones, estado, estado_pago)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REGISTRADA', 'PENDIENTE')`,
+      [
+        parsed.id_proveedor,
+        localId,
+        context.id_usuario,
+        parsed.numero_compra,
+        `${parsed.fecha} 10:00:00`,
+        totalSubtotal,
+        totalIva,
+        totalGeneral,
+        totalGeneral,
+        parsed.observaciones || null,
+      ]
     );
 
-    // Incrementar stock en bodega matriz (id_bodega = 1)
-    await execute(
-      `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
-       VALUES (?, 1, ?, NOW())
-       ON DUPLICATE KEY UPDATE cantidad = cantidad + VALUES(cantidad), fecha_actualizacion = NOW()`,
-      [it.id_variante, it.cantidad]
-    ).catch(() => null);
+    const newIdCompra = Number(result.insertId);
 
-    // Registrar movimiento de entrada
-    await execute(
-      `INSERT INTO movimientos_inventario (id_bodega, id_variante, id_usuario, tipo_movimiento, cantidad, saldo_anterior, saldo_nuevo, motivo, fecha)
-       VALUES (1, ?, ?, 'ENTRADA', ?, 0, ?, ?, NOW())`,
-      [it.id_variante, context.id_usuario, it.cantidad, it.cantidad, `Ingreso por compra ${parsed.numero_compra}`]
-    ).catch(() => null);
-  }
+    // Insertar cada item en detalle_compras y aplicar movimiento atómico
+    for (const it of processedItems) {
+      await conn.execute(
+        `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [newIdCompra, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+      );
+
+      // Aplicar movimiento de inventario con bloqueo FOR UPDATE y Kardex unificado
+      await applyStockMovement({
+        connection: conn,
+        idVariante: it.id_variante,
+        idBodega: bodegaId,
+        tipo: "COMPRA",
+        cantidad: it.cantidad,
+        referenciaTipo: "COMPRA",
+        referenciaId: newIdCompra,
+        motivo: `Ingreso por compra #${parsed.numero_compra}`,
+        usuarioId: context.id_usuario,
+      });
+    }
+
+    return newIdCompra;
+  });
 
   // Ejecutar conciliación automática FIFO del proveedor
   await reconcileSupplierPayments(parsed.id_proveedor, context.id_usuario);
@@ -793,97 +826,173 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
   const context = await requirePermission("COMPRA_EDITAR");
   const parsed = purchaseCreateSchema.parse(input);
 
-  // Obtener items actuales para revertir el stock anterior
-  const oldItems = await query<{ id_variante: number; cantidad: number }>(
-    `SELECT id_variante, cantidad FROM detalle_compras WHERE id_compra = ?`,
-    [id]
-  ).catch(() => []);
+  await transaction(async (conn) => {
+    // 1. Obtener compra y bloquearla
+    const [compraRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_compra, id_local, numero_compra FROM compras WHERE id_compra = ? FOR UPDATE`,
+      [id]
+    );
+    if (!compraRows || compraRows.length === 0) {
+      throw new Error(`Compra #${id} no encontrada.`);
+    }
 
-  for (const oldIt of oldItems ?? []) {
-    await execute(
-      `UPDATE stock_producto 
-       SET cantidad = GREATEST(0, cantidad - ?), fecha_actualizacion = NOW() 
-       WHERE id_variante = ? AND id_bodega = 1`,
-      [Number(oldIt.cantidad) || 0, oldIt.id_variante]
-    ).catch(() => null);
-  }
-
-  // Eliminar detalles anteriores
-  await execute(`DELETE FROM detalle_compras WHERE id_compra = ?`, [id]);
-
-  // Recalcular y preparar nuevos items
-  let totalSubtotal = 0;
-  let totalIva = 0;
-
-  const processedItems = parsed.items.map((it) => {
-    const itSubtotal = Number((it.cantidad * it.precio_unitario).toFixed(2));
-    const itIva = Number((itSubtotal * (it.porcentaje_iva / 100)).toFixed(2));
-    const itTotal = Number((itSubtotal + itIva).toFixed(2));
-
-    totalSubtotal += itSubtotal;
-    totalIva += itIva;
-
-    return {
-      ...it,
-      subtotal: itSubtotal,
-      iva: itIva,
-      total: itTotal,
-    };
-  });
-
-  totalSubtotal = Number(totalSubtotal.toFixed(2));
-  totalIva = Number(totalIva.toFixed(2));
-  const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
-
-  // Actualizar cabecera de compra
-  await execute(
-    `UPDATE compras 
-     SET id_proveedor = ?, 
-         numero_compra = ?, 
-         fecha = ?, 
-         subtotal = ?, 
-         iva = ?, 
-         total = ?, 
-         observaciones = ?
-     WHERE id_compra = ?`,
-    [
-      parsed.id_proveedor,
-      parsed.numero_compra,
-      `${parsed.fecha} 10:00:00`,
-      totalSubtotal,
-      totalIva,
-      totalGeneral,
-      parsed.observaciones || null,
-      id,
-    ]
-  );
-
-  // Insertar nuevos detalles y aplicar nuevo stock
-  for (const it of processedItems) {
-    await execute(
-      `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+    // 2. Obtener movimientos previos de esta compra para revertirlos con Kardex limpio
+    const [prevMovs] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_variante, id_bodega, cantidad 
+       FROM movimientos_inventario 
+       WHERE referencia_tipo = 'COMPRA' AND referencia_id = ? AND tipo = 'COMPRA'`,
+      [id]
     );
 
-    // Incrementar stock en bodega matriz (id_bodega = 1)
-    await execute(
-      `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
-       VALUES (?, 1, ?, NOW())
-       ON DUPLICATE KEY UPDATE cantidad = cantidad + VALUES(cantidad), fecha_actualizacion = NOW()`,
-      [it.id_variante, it.cantidad]
-    ).catch(() => null);
+    // Revertir cada movimiento anterior mediante DEVOLUCION_PROVEEDOR
+    for (const mov of (prevMovs as unknown as Array<{ id_variante: number; id_bodega: number; cantidad: number }>) || []) {
+      await applyStockMovement({
+        connection: conn,
+        idVariante: Number(mov.id_variante),
+        idBodega: Number(mov.id_bodega),
+        tipo: "DEVOLUCION_PROVEEDOR",
+        cantidad: Number(mov.cantidad),
+        referenciaTipo: "COMPRA",
+        referenciaId: id,
+        motivo: `Reversión por edición de compra #${parsed.numero_compra}`,
+        usuarioId: context.id_usuario,
+      });
+    }
 
-    // Registrar movimiento de inventario por modificación
-    await execute(
-      `INSERT INTO movimientos_inventario (id_bodega, id_variante, id_usuario, tipo_movimiento, cantidad, saldo_anterior, saldo_nuevo, motivo, fecha)
-       VALUES (1, ?, ?, 'ENTRADA', ?, 0, ?, ?, NOW())`,
-      [it.id_variante, context.id_usuario, it.cantidad, it.cantidad, `Ajuste por edición de compra ${parsed.numero_compra}`]
-    ).catch(() => null);
-  }
+    // 3. Eliminar detalles anteriores
+    await conn.execute(`DELETE FROM detalle_compras WHERE id_compra = ?`, [id]);
+
+    // 4. Recalcular subtotales y totales nuevos
+    let totalSubtotal = 0;
+    let totalIva = 0;
+
+    const processedItems = parsed.items.map((it) => {
+      const itSubtotal = Number((it.cantidad * it.precio_unitario).toFixed(2));
+      const itIva = Number((itSubtotal * (it.porcentaje_iva / 100)).toFixed(2));
+      const itTotal = Number((itSubtotal + itIva).toFixed(2));
+
+      totalSubtotal += itSubtotal;
+      totalIva += itIva;
+
+      return {
+        ...it,
+        subtotal: itSubtotal,
+        iva: itIva,
+        total: itTotal,
+      };
+    });
+
+    totalSubtotal = Number(totalSubtotal.toFixed(2));
+    totalIva = Number(totalIva.toFixed(2));
+    const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
+
+    // Determinar local y bodega destino
+    let localId = parsed.id_local || (compraRows[0] as { id_local: number }).id_local || 1;
+    let bodegaId = parsed.id_bodega || null;
+    if (!bodegaId) {
+      const [bodegaRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id_bodega FROM bodegas WHERE id_local = ? AND activo = 1 ORDER BY id_bodega ASC LIMIT 1`,
+        [localId]
+      );
+      bodegaId = Number((bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega) || 1;
+    }
+
+    // 5. Actualizar cabecera de compra
+    await conn.execute(
+      `UPDATE compras 
+       SET id_proveedor = ?, 
+           id_local = ?,
+           numero_compra = ?, 
+           fecha = ?, 
+           subtotal = ?, 
+           iva = ?, 
+           total = ?, 
+           observaciones = ?
+       WHERE id_compra = ?`,
+      [
+        parsed.id_proveedor,
+        localId,
+        parsed.numero_compra,
+        `${parsed.fecha} 10:00:00`,
+        totalSubtotal,
+        totalIva,
+        totalGeneral,
+        parsed.observaciones || null,
+        id,
+      ]
+    );
+
+    // 6. Insertar nuevos detalles y aplicar nuevos movimientos
+    for (const it of processedItems) {
+      await conn.execute(
+        `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+      );
+
+      await applyStockMovement({
+        connection: conn,
+        idVariante: it.id_variante,
+        idBodega: bodegaId,
+        tipo: "COMPRA",
+        cantidad: it.cantidad,
+        referenciaTipo: "COMPRA",
+        referenciaId: id,
+        motivo: `Ingreso actualizado por edición de compra #${parsed.numero_compra}`,
+        usuarioId: context.id_usuario,
+      });
+    }
+  });
 
   // Reconciliar compras del proveedor
   await reconcileSupplierPayments(parsed.id_proveedor, context.id_usuario);
+}
+
+export async function voidPurchase(id: number, motivo?: string): Promise<void> {
+  const context = await requirePermission("COMPRA_EDITAR");
+
+  await transaction(async (conn) => {
+    const [compraRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_compra, numero_compra, estado FROM compras WHERE id_compra = ? FOR UPDATE`,
+      [id]
+    );
+    if (!compraRows || compraRows.length === 0) {
+      throw new Error(`Compra #${id} no encontrada.`);
+    }
+    const compra = compraRows[0] as { id_compra: number; numero_compra: string; estado: string };
+    if (compra.estado === "ANULADA") {
+      throw new Error(`La compra #${compra.numero_compra} ya se encuentra anulada.`);
+    }
+
+    // Obtener movimientos de compra registrados
+    const [movRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_variante, id_bodega, cantidad 
+       FROM movimientos_inventario 
+       WHERE referencia_tipo = 'COMPRA' AND referencia_id = ? AND tipo = 'COMPRA'`,
+      [id]
+    );
+
+    // Revertir cada movimiento mediante DEVOLUCION_PROVEEDOR (valida stock suficiente)
+    for (const mov of (movRows as unknown as Array<{ id_variante: number; id_bodega: number; cantidad: number }>) || []) {
+      await applyStockMovement({
+        connection: conn,
+        idVariante: Number(mov.id_variante),
+        idBodega: Number(mov.id_bodega),
+        tipo: "DEVOLUCION_PROVEEDOR",
+        cantidad: Number(mov.cantidad),
+        referenciaTipo: "COMPRA",
+        referenciaId: id,
+        motivo: `Anulación de compra #${compra.numero_compra}${motivo ? `: ${motivo}` : ""}`,
+        usuarioId: context.id_usuario,
+      });
+    }
+
+    // Marcar estado como ANULADA
+    await conn.execute(
+      `UPDATE compras SET estado = 'ANULADA' WHERE id_compra = ?`,
+      [id]
+    );
+  });
 }
 
 export async function registerPurchasePayment(input: PurchasePaymentInput) {

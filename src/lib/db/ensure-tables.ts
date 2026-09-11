@@ -411,16 +411,40 @@ export async function ensureCustomTables() {
       FROM \`variantes_producto\` vp;
     `).catch(() => null);
 
-    // Asegurar existencias iniciales para productos ovejeros si están en cero
+    // Asegurar vista de consistencia matemática entre Kardex y Stock
     await execute(`
-      UPDATE \`stock_producto\`
-      SET \`cantidad\` = 15.00
-      WHERE \`id_variante\` IN (
-        SELECT vp.id_variante 
-        FROM \`variantes_producto\` vp 
-        JOIN \`productos\` p ON p.id_producto = vp.id_producto 
-        WHERE p.descripcion LIKE '%OVEJER%' OR p.descripcion LIKE '%Ovejero%'
-      ) AND \`cantidad\` <= 0.00;
+      CREATE OR REPLACE VIEW \`vw_inventario_consistencia\` AS
+      SELECT 
+        sp.id_variante,
+        sp.id_bodega,
+        sp.cantidad AS stock_tabla,
+        COALESCE(SUM(
+          CASE 
+            WHEN m.tipo IN ('INICIAL', 'COMPRA', 'DEVOLUCION_CLIENTE', 'AJUSTE_ENTRADA', 'TRANSFERENCIA_ENTRADA', 'ENTRADA_INICIAL', 'DEVOLUCION_VENTA', 'AJUSTE_SOBRANTE', 'CORRECCION_ENTRADA', 'ENTRADA') THEN m.cantidad
+            WHEN m.tipo IN ('VENTA', 'DEVOLUCION_PROVEEDOR', 'AJUSTE_SALIDA', 'TRANSFERENCIA_SALIDA', 'DEVOLUCION_COMPRA', 'AJUSTE_FALTANTE', 'PERDIDA', 'DANO', 'DANADO', 'CORRECCION_SALIDA') THEN -m.cantidad
+            ELSE 0
+          END
+        ), 0.00) AS stock_kardex,
+        ROUND(sp.cantidad - COALESCE(SUM(
+          CASE 
+            WHEN m.tipo IN ('INICIAL', 'COMPRA', 'DEVOLUCION_CLIENTE', 'AJUSTE_ENTRADA', 'TRANSFERENCIA_ENTRADA', 'ENTRADA_INICIAL', 'DEVOLUCION_VENTA', 'AJUSTE_SOBRANTE', 'CORRECCION_ENTRADA', 'ENTRADA') THEN m.cantidad
+            WHEN m.tipo IN ('VENTA', 'DEVOLUCION_PROVEEDOR', 'AJUSTE_SALIDA', 'TRANSFERENCIA_SALIDA', 'DEVOLUCION_COMPRA', 'AJUSTE_FALTANTE', 'PERDIDA', 'DANO', 'DANADO', 'CORRECCION_SALIDA') THEN -m.cantidad
+            ELSE 0
+          END
+        ), 0.00), 4) AS diferencia,
+        CASE 
+          WHEN ABS(sp.cantidad - COALESCE(SUM(
+            CASE 
+              WHEN m.tipo IN ('INICIAL', 'COMPRA', 'DEVOLUCION_CLIENTE', 'AJUSTE_ENTRADA', 'TRANSFERENCIA_ENTRADA', 'ENTRADA_INICIAL', 'DEVOLUCION_VENTA', 'AJUSTE_SOBRANTE', 'CORRECCION_ENTRADA', 'ENTRADA') THEN m.cantidad
+              WHEN m.tipo IN ('VENTA', 'DEVOLUCION_PROVEEDOR', 'AJUSTE_SALIDA', 'TRANSFERENCIA_SALIDA', 'DEVOLUCION_COMPRA', 'AJUSTE_FALTANTE', 'PERDIDA', 'DANO', 'DANADO', 'CORRECCION_SALIDA') THEN -m.cantidad
+              ELSE 0
+            END
+          ), 0.00)) < 0.0001 THEN 'OK'
+          ELSE 'ERROR'
+        END AS estado
+      FROM \`stock_producto\` sp
+      LEFT JOIN \`movimientos_inventario\` m ON m.id_variante = sp.id_variante AND m.id_bodega = sp.id_bodega
+      GROUP BY sp.id_variante, sp.id_bodega, sp.cantidad;
     `).catch(() => null);
 
     // Ejecutar conciliación FIFO de abonos y compras a proveedores

@@ -7,6 +7,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { query, queryOne, transaction, execute } from "@/src/lib/db/mysql";
 import { deleteLocalImage, saveLocalImage } from "@/src/lib/storage/local";
 import { requirePermission } from "@/src/services/auth/authorization";
+import { applyStockMovement } from "@/src/services/inventory/apply-stock-movement";
 
 function getLocalProductImage(productId: number, dbUrl?: string | null): string | null {
   if (dbUrl && dbUrl.trim()) return dbUrl.trim();
@@ -455,7 +456,7 @@ export async function createProduct(input: ProductInput, image?: File | null): P
 
     // 4. Insertar variante de producto
     try {
-      await conn.execute(
+      const [variantResult] = await conn.execute<ResultSetHeader>(
         `INSERT INTO variantes_producto (
            id_producto,
            codigo_interno,
@@ -488,25 +489,41 @@ export async function createProduct(input: ProductInput, image?: File | null): P
         ]
       );
 
-      // 5. Stock inicial en bodega (asegurar siempre fila en stock_producto)
-      const initialStock = Number(parsed.cantidad_inicial) || 0;
-      await conn.execute(
-        `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
-         VALUES ((SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1), 1, ?, NOW())
-         ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)`,
-        [productId, initialStock]
-      );
+      const variantId = Number((variantResult as ResultSetHeader).insertId);
 
+      // Determinar bodega destino activa para el local o bodega activa principal
+      const [warehouseRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id_bodega FROM bodegas WHERE id_local = ? AND activo = 1 LIMIT 1`,
+        [context.id_local]
+      );
+      let targetBodegaId = (warehouseRows as { id_bodega: number }[])[0]?.id_bodega;
+      if (!targetBodegaId) {
+        const [fallbackBodega] = await conn.execute<RowDataPacket[]>(
+          `SELECT id_bodega FROM bodegas WHERE activo = 1 ORDER BY id_bodega ASC LIMIT 1`
+        );
+        targetBodegaId = (fallbackBodega as { id_bodega: number }[])[0]?.id_bodega || 1;
+      }
+
+      // 5. Stock inicial en bodega a través de la función unificada de inventario
+      const initialStock = Number(parsed.cantidad_inicial) || 0;
       if (initialStock > 0) {
+        await applyStockMovement({
+          connection: conn,
+          idVariante: variantId,
+          idBodega: targetBodegaId,
+          tipo: "INICIAL",
+          cantidad: initialStock,
+          motivo: "Stock inicial al crear producto",
+          referenciaTipo: "AJUSTE",
+          usuarioId: context.id_usuario ? Number(context.id_usuario) : null,
+        });
+      } else {
         await conn.execute(
-          `INSERT INTO movimientos_inventario (
-             id_variante, id_bodega, tipo, cantidad, stock_anterior, stock_nuevo, motivo, referencia_tipo, usuario, fecha
-           ) VALUES (
-             (SELECT id_variante FROM variantes_producto WHERE id_producto = ? LIMIT 1),
-             1, 'ENTRADA_INICIAL', ?, 0, ?, 'Stock inicial al crear producto', 'AJUSTE', ?, NOW()
-           )`,
-          [productId, initialStock, initialStock, context.id_usuario]
-        ).catch(() => null);
+          `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion)
+           VALUES (?, ?, 0, NOW())
+           ON DUPLICATE KEY UPDATE fecha_actualizacion = NOW()`,
+          [variantId, targetBodegaId]
+        );
       }
     } catch (error: unknown) {
       if (imageUrl) await deleteLocalImage(imageUrl);

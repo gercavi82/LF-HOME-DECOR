@@ -22,6 +22,16 @@ export type InventoryItem = {
   stock_actual: number;
   stock_minimo: number;
   estado_stock: InventoryStatus;
+  inicial: number;
+  compras: number;
+  ventas: number;
+  devoluciones_cliente: number;
+  devoluciones_proveedor: number;
+  ajustes_pos: number;
+  ajustes_neg: number;
+  stock_kardex: number;
+  inconsistencia: boolean;
+  diferencia: number;
 };
 
 type InventoryItemRaw = {
@@ -39,6 +49,14 @@ type InventoryItemRaw = {
   stock_actual: number;
   stock_minimo: number;
   estado_stock: string;
+  cant_inicial: number | null;
+  cant_compras: number | null;
+  cant_ventas: number | null;
+  cant_dev_cliente: number | null;
+  cant_dev_proveedor: number | null;
+  cant_ajustes_pos: number | null;
+  cant_ajustes_neg: number | null;
+  saldo_kardex: number | null;
 };
 
 function sanitizeSearch(value: string) {
@@ -69,7 +87,15 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         WHEN sp.cantidad <= 0 THEN 'AGOTADO'
         WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
         ELSE 'DISPONIBLE'
-      END AS estado_stock
+      END AS estado_stock,
+      COALESCE(k.cant_inicial, 0) AS cant_inicial,
+      COALESCE(k.cant_compras, 0) AS cant_compras,
+      COALESCE(k.cant_ventas, 0) AS cant_ventas,
+      COALESCE(k.cant_dev_cliente, 0) AS cant_dev_cliente,
+      COALESCE(k.cant_dev_proveedor, 0) AS cant_dev_proveedor,
+      COALESCE(k.cant_ajustes_pos, 0) AS cant_ajustes_pos,
+      COALESCE(k.cant_ajustes_neg, 0) AS cant_ajustes_neg,
+      COALESCE(k.saldo_kardex, 0) AS saldo_kardex
     FROM stock_producto sp
     JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
     JOIN productos p ON p.id_producto = vp.id_producto
@@ -78,6 +104,27 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     LEFT JOIN marcas m ON m.id_marca = p.id_marca
     LEFT JOIN tamanos t ON t.id_tamano = vp.id_tamano
     LEFT JOIN colores col ON col.id_color = vp.id_color
+    LEFT JOIN (
+      SELECT 
+        id_variante,
+        id_bodega,
+        SUM(CASE WHEN tipo IN ('INICIAL', 'ENTRADA_INICIAL') THEN cantidad ELSE 0 END) AS cant_inicial,
+        SUM(CASE WHEN tipo = 'COMPRA' THEN cantidad ELSE 0 END) AS cant_compras,
+        SUM(CASE WHEN tipo IN ('VENTA') THEN cantidad ELSE 0 END) AS cant_ventas,
+        SUM(CASE WHEN tipo IN ('DEVOLUCION_CLIENTE', 'DEVOLUCION') THEN cantidad ELSE 0 END) AS cant_dev_cliente,
+        SUM(CASE WHEN tipo = 'DEVOLUCION_PROVEEDOR' THEN cantidad ELSE 0 END) AS cant_dev_proveedor,
+        SUM(CASE WHEN tipo IN ('AJUSTE_ENTRADA', 'AJUSTE_SOBRANTE', 'CORRECCION_ENTRADA', 'TRANSFERENCIA_ENTRADA') THEN cantidad ELSE 0 END) AS cant_ajustes_pos,
+        SUM(CASE WHEN tipo IN ('AJUSTE_SALIDA', 'AJUSTE_FALTANTE', 'PERDIDA', 'DANO', 'CORRECCION_SALIDA', 'TRANSFERENCIA_SALIDA') THEN cantidad ELSE 0 END) AS cant_ajustes_neg,
+        SUM(
+          CASE
+            WHEN tipo IN ('INICIAL', 'ENTRADA_INICIAL', 'COMPRA', 'DEVOLUCION_CLIENTE', 'DEVOLUCION', 'AJUSTE_ENTRADA', 'AJUSTE_SOBRANTE', 'CORRECCION_ENTRADA', 'TRANSFERENCIA_ENTRADA', 'ENTRADA') THEN cantidad
+            WHEN tipo IN ('VENTA', 'DEVOLUCION_PROVEEDOR', 'AJUSTE_SALIDA', 'AJUSTE_FALTANTE', 'PERDIDA', 'DANO', 'CORRECCION_SALIDA', 'TRANSFERENCIA_SALIDA', 'SALIDA') THEN -cantidad
+            ELSE 0
+          END
+        ) AS saldo_kardex
+      FROM movimientos_inventario
+      GROUP BY id_variante, id_bodega
+    ) k ON k.id_variante = sp.id_variante AND k.id_bodega = sp.id_bodega
     WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
   `;
 
@@ -132,22 +179,42 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     const lowCount = countsMap.get("BAJO STOCK") || 0;
     const outCount = countsMap.get("AGOTADO") || 0;
 
-    const items: InventoryItem[] = (itemsResult ?? []).map((item) => ({
-      id_stock: Number(item.id_stock),
-      id_producto: Number(item.id_producto),
-      id_variante: Number(item.id_variante),
-      id_bodega: Number(item.id_bodega),
-      producto: item.producto,
-      codigo_gs1: item.codigo_gs1,
-      bodega: item.bodega,
-      categoria: item.categoria ?? null,
-      marca: item.marca ?? null,
-      tamano: item.tamano ?? null,
-      color: item.color ?? null,
-      stock_actual: Number(item.stock_actual) || 0,
-      stock_minimo: Number(item.stock_minimo) || 0,
-      estado_stock: inventoryStatusSchema.catch("DISPONIBLE").parse(item.estado_stock),
-    }));
+    let inconsistenciesCount = 0;
+
+    const items: InventoryItem[] = (itemsResult ?? []).map((item) => {
+      const stockActual = Number(item.stock_actual) || 0;
+      const stockKardex = Number(item.saldo_kardex) || 0;
+      const diferencia = Number((stockActual - stockKardex).toFixed(4));
+      const inconsistencia = Math.abs(diferencia) > 0.0001;
+      if (inconsistencia) inconsistenciesCount++;
+
+      return {
+        id_stock: Number(item.id_stock),
+        id_producto: Number(item.id_producto),
+        id_variante: Number(item.id_variante),
+        id_bodega: Number(item.id_bodega),
+        producto: item.producto,
+        codigo_gs1: item.codigo_gs1,
+        bodega: item.bodega,
+        categoria: item.categoria ?? null,
+        marca: item.marca ?? null,
+        tamano: item.tamano ?? null,
+        color: item.color ?? null,
+        stock_actual: stockActual,
+        stock_minimo: Number(item.stock_minimo) || 0,
+        estado_stock: inventoryStatusSchema.catch("DISPONIBLE").parse(item.estado_stock),
+        inicial: Number(item.cant_inicial) || 0,
+        compras: Number(item.cant_compras) || 0,
+        ventas: Number(item.cant_ventas) || 0,
+        devoluciones_cliente: Number(item.cant_dev_cliente) || 0,
+        devoluciones_proveedor: Number(item.cant_dev_proveedor) || 0,
+        ajustes_pos: Number(item.cant_ajustes_pos) || 0,
+        ajustes_neg: Number(item.cant_ajustes_neg) || 0,
+        stock_kardex: stockKardex,
+        inconsistencia,
+        diferencia,
+      };
+    });
 
     return {
       items,
@@ -157,6 +224,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         low: lowCount,
         out: outCount,
         total: availableCount + lowCount + outCount,
+        inconsistencies: inconsistenciesCount,
       },
       status: parsedStatus.success ? parsedStatus.data : null,
     };
@@ -165,7 +233,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     return {
       items: [],
       count: 0,
-      summary: { available: 0, low: 0, out: 0, total: 0 },
+      summary: { available: 0, low: 0, out: 0, total: 0, inconsistencies: 0 },
       status: null,
     };
   }

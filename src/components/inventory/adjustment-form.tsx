@@ -9,20 +9,16 @@ import type { AdjustmentOption, StockOption, WarehouseOption } from "@/src/servi
 
 const initialState: AdjustmentState = {};
 const movementTypes = [
-  { value: "ENTRADA_INICIAL", label: "Entrada inicial", positive: true },
-  { value: "AJUSTE_SOBRANTE", label: "Ajuste por sobrante", positive: true },
-  { value: "AJUSTE_FALTANTE", label: "Ajuste por faltante", positive: false },
-  { value: "PERDIDA", label: "Pérdida", positive: false },
-  { value: "DANO", label: "Daño", positive: false },
-  { value: "CORRECCION_ENTRADA", label: "Corrección de entrada", positive: true },
-  { value: "CORRECCION_SALIDA", label: "Corrección de salida", positive: false },
+  { value: "AJUSTE_ENTRADA", label: "Ajuste de entrada (+ sobrante / corrección)", positive: true },
+  { value: "AJUSTE_SALIDA", label: "Ajuste de salida (− faltante / merma / corrección)", positive: false },
+  { value: "INICIAL", label: "Inventario inicial (+ carga de saldo)", positive: true },
 ] as const;
 
 export function AdjustmentForm({ products, warehouses, stocks }: { products: AdjustmentOption[]; warehouses: WarehouseOption[]; stocks: StockOption[] }) {
   const [state, action, pending] = useActionState(createAdjustmentAction, initialState);
   const [variantId, setVariantId] = useState(0);
   const [warehouseId, setWarehouseId] = useState(0);
-  const [type, setType] = useState<(typeof movementTypes)[number]["value"]>("AJUSTE_SOBRANTE");
+  const [type, setType] = useState<string>("AJUSTE_ENTRADA");
   const [quantity, setQuantity] = useState(0);
   const currentStock = useMemo(() => stocks.find((stock) => stock.id_variante === variantId && stock.id_bodega === warehouseId)?.cantidad ?? 0, [stocks, variantId, warehouseId]);
   const positive = movementTypes.find((item) => item.value === type)?.positive ?? false;

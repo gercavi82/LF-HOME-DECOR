@@ -5,11 +5,39 @@ import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Alert, Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead } from "@/src/components/ui";
 import { listInventoryMovements } from "@/src/services/inventory/movements";
 
-const incoming = new Set(["ENTRADA_INICIAL", "COMPRA", "DEVOLUCION_VENTA", "AJUSTE_SOBRANTE", "CORRECCION_ENTRADA"]);
+const incoming = new Set([
+  "INICIAL",
+  "ENTRADA_INICIAL",
+  "COMPRA",
+  "DEVOLUCION_CLIENTE",
+  "DEVOLUCION_VENTA",
+  "DEVOLUCION",
+  "AJUSTE_ENTRADA",
+  "AJUSTE_SOBRANTE",
+  "CORRECCION_ENTRADA",
+  "TRANSFERENCIA_ENTRADA",
+  "ENTRADA",
+]);
+
 const labels: Record<string, string> = {
-  ENTRADA_INICIAL: "Entrada inicial", COMPRA: "Compra", VENTA: "Venta", DEVOLUCION_COMPRA: "Devolución de compra",
-  DEVOLUCION_VENTA: "Devolución de venta", AJUSTE_SOBRANTE: "Ajuste sobrante", AJUSTE_FALTANTE: "Ajuste faltante",
-  PERDIDA: "Pérdida", DANO: "Daño", CORRECCION_ENTRADA: "Corrección entrada", CORRECCION_SALIDA: "Corrección salida",
+  INICIAL: "Inventario inicial",
+  ENTRADA_INICIAL: "Inventario inicial",
+  COMPRA: "Compra",
+  VENTA: "Venta",
+  DEVOLUCION_CLIENTE: "Devolución de cliente",
+  DEVOLUCION_VENTA: "Devolución de venta",
+  DEVOLUCION_PROVEEDOR: "Devolución a proveedor",
+  DEVOLUCION_COMPRA: "Devolución de compra",
+  AJUSTE_ENTRADA: "Ajuste de entrada (+)",
+  AJUSTE_SALIDA: "Ajuste de salida (−)",
+  AJUSTE_SOBRANTE: "Ajuste por sobrante",
+  AJUSTE_FALTANTE: "Ajuste por faltante",
+  TRANSFERENCIA_ENTRADA: "Transferencia (entrada)",
+  TRANSFERENCIA_SALIDA: "Transferencia (salida)",
+  PERDIDA: "Pérdida",
+  DANO: "Daño",
+  CORRECCION_ENTRADA: "Corrección entrada",
+  CORRECCION_SALIDA: "Corrección salida",
 };
 const dateFormatter = new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", dateStyle: "short", timeStyle: "short" });
 

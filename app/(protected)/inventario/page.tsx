@@ -34,6 +34,20 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         </div>
       }
     />
+    {inventory.summary.inconsistencies > 0 ? (
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="size-5 shrink-0 text-red-600" />
+          <p className="text-sm">
+            <strong className="font-semibold">Alerta de consistencia:</strong> Se detectaron {inventory.summary.inconsistencies} registro(s) cuyo stock en tabla difiere del cálculo acumulado del Kardex.
+          </p>
+        </div>
+        <Link href="/inventario/movimientos" className="text-sm font-semibold underline hover:text-red-900">
+          Revisar movimientos
+        </Link>
+      </div>
+    ) : null}
+
     <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <SummaryCard label="Registros de stock" value={inventory.summary.total} icon={Boxes} tone="bg-lf-navy/10 text-lf-navy" />
       <SummaryCard label="Disponibles" value={inventory.summary.available} icon={CheckCircle2} tone="bg-[var(--lf-success-soft)] text-lf-success" />
@@ -46,9 +60,82 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       <button className="h-11 rounded-xl bg-lf-navy px-5 text-sm font-semibold text-white">Filtrar</button>
       {(q || estado) ? <Link href="/inventario" className="inline-flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold hover:bg-lf-surface-muted">Limpiar</Link> : <span />}
     </form>
-    {inventory.items.length ? <><TableContainer><Table><thead><tr><TableHead>Producto / GS1</TableHead><TableHead>Bodega</TableHead><TableHead>Stock actual</TableHead><TableHead>Stock mínimo</TableHead><TableHead>Estado</TableHead></tr></thead><tbody>{inventory.items.map((item) => {
-      const presentation = statusPresentation[item.estado_stock];
-      return <tr key={item.id_stock} className="hover:bg-lf-surface-muted/60"><TableCell><Link href={`/productos/${item.id_producto}`} className="font-semibold hover:text-lf-terracotta">{item.producto}</Link><p className="mt-0.5 font-mono text-xs text-lf-muted">{item.codigo_gs1}</p><p className="mt-0.5 text-xs text-lf-muted">{[item.categoria, item.marca, item.tamano, item.color].filter(Boolean).join(" · ")}</p></TableCell><TableCell>{item.bodega}</TableCell><TableCell><span className={`text-lg font-bold ${item.estado_stock === "AGOTADO" ? "text-lf-danger" : item.estado_stock === "BAJO STOCK" ? "text-lf-warning" : "text-lf-navy"}`}>{item.stock_actual}</span></TableCell><TableCell>{item.stock_minimo}</TableCell><TableCell><Badge variant={presentation.variant}>{presentation.label}</Badge></TableCell></tr>;
-    })}</tbody></Table></TableContainer><p className="mt-3 text-sm text-lf-muted">{inventory.count} registro(s). Se muestran hasta 200 resultados.</p></> : <Card><CardContent className="grid min-h-60 place-items-center text-center"><div><Boxes className="mx-auto text-lf-muted" size={32} /><p className="mt-3 font-semibold">No hay existencias para mostrar</p><p className="mt-1 text-sm text-lf-muted">Prueba con otro filtro o registra movimientos de inventario.</p></div></CardContent></Card>}
+    {inventory.items.length ? (
+      <>
+        <TableContainer>
+          <Table>
+            <thead>
+              <tr>
+                <TableHead>Producto / GS1</TableHead>
+                <TableHead>Bodega</TableHead>
+                <TableHead className="text-right">Inicial</TableHead>
+                <TableHead className="text-right">Compras</TableHead>
+                <TableHead className="text-right">Ventas</TableHead>
+                <TableHead className="text-right">Stock Kardex</TableHead>
+                <TableHead className="text-right">Stock Actual</TableHead>
+                <TableHead>Estado</TableHead>
+              </tr>
+            </thead>
+            <tbody>
+              {inventory.items.map((item) => {
+                const presentation = statusPresentation[item.estado_stock];
+                return (
+                  <tr key={item.id_stock} className="hover:bg-lf-surface-muted/60">
+                    <TableCell>
+                      <Link href={`/productos/${item.id_producto}`} className="font-semibold hover:text-lf-terracotta">
+                        {item.producto}
+                      </Link>
+                      <p className="mt-0.5 font-mono text-xs text-lf-muted">{item.codigo_gs1}</p>
+                      <p className="mt-0.5 text-xs text-lf-muted">
+                        {[item.categoria, item.marca, item.tamano, item.color].filter(Boolean).join(" · ")}
+                      </p>
+                    </TableCell>
+                    <TableCell>{item.bodega}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-lf-muted">{item.inicial}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-emerald-700">+{item.compras}</TableCell>
+                    <TableCell className="text-right font-mono text-xs text-red-700">−{item.ventas}</TableCell>
+                    <TableCell className="text-right font-mono text-xs font-semibold">{item.stock_kardex}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex flex-col items-end">
+                        <span
+                          className={`text-lg font-bold ${
+                            item.estado_stock === "AGOTADO"
+                              ? "text-lf-danger"
+                              : item.estado_stock === "BAJO STOCK"
+                              ? "text-lf-warning"
+                              : "text-lf-navy"
+                          }`}
+                        >
+                          {item.stock_actual}
+                        </span>
+                        {item.inconsistencia ? (
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-red-600" title={`Diferencia con Kardex: ${item.diferencia}`}>
+                            <AlertTriangle size={12} /> Descuadre ({item.stock_kardex})
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={presentation.variant}>{presentation.label}</Badge>
+                    </TableCell>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </TableContainer>
+        <p className="mt-3 text-sm text-lf-muted">{inventory.count} registro(s). Se muestran hasta 200 resultados.</p>
+      </>
+    ) : (
+      <Card>
+        <CardContent className="grid min-h-60 place-items-center text-center">
+          <div>
+            <Boxes className="mx-auto text-lf-muted" size={32} />
+            <p className="mt-3 font-semibold">No hay existencias para mostrar</p>
+            <p className="mt-1 text-sm text-lf-muted">Prueba con otro filtro o registra movimientos de inventario.</p>
+          </div>
+        </CardContent>
+      </Card>
+    )}
   </ContentContainer>;
 }

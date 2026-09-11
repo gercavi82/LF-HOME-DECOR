@@ -22,6 +22,8 @@ export const purchaseItemSchema = z.object({
 
 export const purchaseCreateSchema = z.object({
   id_proveedor: z.coerce.number().int().positive("Seleccione un proveedor"),
+  id_local: z.coerce.number().int().positive().optional().nullable(),
+  id_bodega: z.coerce.number().int().positive().optional().nullable(),
   numero_compra: z.string().trim().min(1, "Ingrese el número de compra/factura"),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   observaciones: z.string().trim().max(500).optional(),

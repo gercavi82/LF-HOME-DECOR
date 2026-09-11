@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { transaction } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
+import { applyStockMovement } from "@/src/services/inventory/apply-stock-movement";
 
 export const saleTransactionSchema = z.object({
   id_local: z.coerce.number().int().positive().default(1),
@@ -306,116 +307,49 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         ]
       );
 
-      // Descontar inventario de bodegas activas priorizando existencias reales
+      // 1. Obtener existencias bloqueadas con FOR UPDATE exclusivamente en bodegas activas del local
       const [warehouseStocks] = await conn.execute<RowDataPacket[]>(
-        `SELECT sp.id_stock, sp.id_bodega, sp.cantidad 
+        `SELECT sp.id_stock, sp.id_bodega, sp.cantidad, b.nombre AS bodega_nombre
          FROM stock_producto sp
          JOIN bodegas b ON b.id_bodega = sp.id_bodega
-         WHERE sp.id_variante = ? AND (b.id_local = ? OR b.id_local = 1) AND b.activo = 1
-         ORDER BY (b.id_local = ?) DESC, (sp.cantidad > 0) DESC, sp.cantidad DESC
+         WHERE sp.id_variante = ? AND b.id_local = ? AND b.activo = 1
+         ORDER BY sp.cantidad DESC, sp.id_bodega ASC
          FOR UPDATE`,
-        [line.id_variante, parsed.id_local || 1, parsed.id_local || 1]
+        [line.id_variante, parsed.id_local]
       );
 
-      let restante = line.cantidad;
-      for (const stock of (warehouseStocks as unknown as StockRow[]) || []) {
-        if (restante <= 0) break;
-        const cantDisponible = Number(stock.cantidad);
-        if (cantDisponible <= 0) continue; // Priorizar bodegas con existencias positivas
+      const availableStocks = (warehouseStocks as unknown as StockRow[]) || [];
+      const totalDisponible = availableStocks.reduce((sum, s) => sum + Math.max(0, Number(s.cantidad) || 0), 0);
 
-        const tomar = Math.min(restante, cantDisponible);
-        const stockNuevo = cantDisponible - tomar;
-
-        // Actualizar stock
-        await conn.execute(
-          `UPDATE stock_producto SET cantidad = ?, fecha_actualizacion = NOW() WHERE id_stock = ?`,
-          [stockNuevo, stock.id_stock]
+      // 2. REGLA ESTRICTA: NO PERMITIR VENTA CON STOCK INSUFICIENTE NI STOCK NEGATIVO
+      if (totalDisponible < line.cantidad) {
+        throw new Error(
+          `Stock insuficiente para el producto seleccionado en el local #${parsed.id_local}. Disponible: ${totalDisponible}, requerido: ${line.cantidad}. No se permite generar existencias negativas.`
         );
-
-        // Registrar movimiento en kardex
-        await conn.execute(
-          `INSERT INTO movimientos_inventario (
-             id_variante,
-             id_bodega,
-             tipo,
-             cantidad,
-             stock_anterior,
-             stock_nuevo,
-             motivo,
-             referencia_tipo,
-             referencia_id,
-             usuario,
-             fecha
-           ) VALUES (?, ?, 'VENTA', ?, ?, ?, ?, 'VENTA', ?, ?, NOW())`,
-          [
-            line.id_variante,
-            stock.id_bodega,
-            tomar,
-            cantDisponible,
-            stockNuevo,
-            `Venta ${numeroVenta}`,
-            saleId,
-            context.id_usuario,
-          ]
-        ).catch((e) => console.error("Error insertando movimiento de inventario en venta:", e));
-
-        restante -= tomar;
       }
 
-      // Si aún queda restante o no existía stock disponible suficiente en bodegas
-      if (restante > 0) {
-        const [bodegaRows] = await conn.execute<RowDataPacket[]>(
-          `SELECT id_bodega FROM bodegas WHERE (id_local = ? OR id_local = 1) AND activo = 1 ORDER BY (id_local = ?) DESC, id_bodega ASC LIMIT 1`,
-          [parsed.id_local || 1, parsed.id_local || 1]
-        );
-        const bodegaId = (bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega || 1;
+      // 3. Descontar aplicando movimientos oficiales mediante applyStockMovement
+      let restante = line.cantidad;
+      for (const stock of availableStocks) {
+        if (restante <= 0) break;
+        const cantDisponible = Number(stock.cantidad) || 0;
+        if (cantDisponible <= 0) continue;
 
-        const [currRows] = await conn.execute<RowDataPacket[]>(
-          `SELECT id_stock, cantidad FROM stock_producto WHERE id_variante = ? AND id_bodega = ? FOR UPDATE`,
-          [line.id_variante, bodegaId]
-        );
-        const currStock = currRows?.[0] as { id_stock: number; cantidad: number } | undefined;
-        const cantAnterior = currStock ? Number(currStock.cantidad) : 0;
-        const cantNueva = cantAnterior - restante;
+        const tomar = Math.min(restante, cantDisponible);
 
-        if (currStock) {
-          await conn.execute(
-            `UPDATE stock_producto SET cantidad = ?, fecha_actualizacion = NOW() WHERE id_stock = ?`,
-            [cantNueva, currStock.id_stock]
-          );
-        } else {
-          await conn.execute(
-            `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) VALUES (?, ?, ?, NOW())`,
-            [line.id_variante, bodegaId, cantNueva]
-          );
-        }
+        await applyStockMovement({
+          connection: conn,
+          idVariante: line.id_variante,
+          idBodega: stock.id_bodega,
+          tipo: "VENTA",
+          cantidad: tomar,
+          referenciaTipo: "VENTA",
+          referenciaId: saleId,
+          motivo: `Venta #${numeroVenta}`,
+          usuarioId: context.id_usuario,
+        });
 
-        // Registrar remanente en kardex
-        await conn.execute(
-          `INSERT INTO movimientos_inventario (
-             id_variante,
-             id_bodega,
-             tipo,
-             cantidad,
-             stock_anterior,
-             stock_nuevo,
-             motivo,
-             referencia_tipo,
-             referencia_id,
-             usuario,
-             fecha
-           ) VALUES (?, ?, 'VENTA', ?, ?, ?, ?, 'VENTA', ?, ?, NOW())`,
-          [
-            line.id_variante,
-            bodegaId,
-            restante,
-            cantAnterior,
-            cantNueva,
-            `Venta ${numeroVenta}`,
-            saleId,
-            context.id_usuario,
-          ]
-        ).catch((e) => console.error("Error insertando remanente de kardex en venta:", e));
+        restante -= tomar;
       }
     }
 
@@ -532,88 +466,17 @@ export async function annulSaleTransaction(saleId: number, motivo?: string) {
       }
 
       for (const dist of distribucion) {
-        // Bloquear fila de stock
-        const [stockRows] = await conn.execute<RowDataPacket[]>(
-          `SELECT id_stock, cantidad 
-           FROM stock_producto 
-           WHERE id_variante = ? AND id_bodega = ? 
-           FOR UPDATE`,
-          [item.id_variante, dist.id_bodega]
-        );
-
-        let stockAnterior = 0;
-
-        if (stockRows && stockRows.length > 0) {
-          const row = stockRows[0] as { id_stock: number; cantidad: number };
-          const stockId = row.id_stock;
-          stockAnterior = Number(row.cantidad);
-          const stockNuevo = stockAnterior + dist.cantidad;
-
-          await conn.execute(
-            `UPDATE stock_producto SET cantidad = ?, fecha_actualizacion = NOW() WHERE id_stock = ?`,
-            [stockNuevo, stockId]
-          );
-
-          // Registrar movimiento en el kardex
-          await conn.execute(
-            `INSERT INTO movimientos_inventario (
-               id_variante,
-               id_bodega,
-               tipo,
-               cantidad,
-               stock_anterior,
-               stock_nuevo,
-               motivo,
-               referencia_tipo,
-               referencia_id,
-               usuario,
-               fecha
-             ) VALUES (?, ?, 'DEVOLUCION_VENTA', ?, ?, ?, ?, 'VENTA', ?, ?, NOW())`,
-            [
-              item.id_variante,
-              dist.id_bodega,
-              dist.cantidad,
-              stockAnterior,
-              stockNuevo,
-              `Anulación de venta ${sale.numero_venta}${motivo ? `: ${motivo}` : ""}`,
-              saleId,
-              context.id_usuario,
-            ]
-          ).catch((e) => console.error("Error insertando movimiento kardex:", e));
-        } else {
-          // Crear registro de stock si no existía previamente en esa bodega
-          const stockNuevo = dist.cantidad;
-          await conn.execute(
-            `INSERT INTO stock_producto (id_variante, id_bodega, cantidad, fecha_actualizacion) 
-             VALUES (?, ?, ?, NOW())`,
-            [item.id_variante, dist.id_bodega, stockNuevo]
-          );
-
-          await conn.execute(
-            `INSERT INTO movimientos_inventario (
-               id_variante,
-               id_bodega,
-               tipo,
-               cantidad,
-               stock_anterior,
-               stock_nuevo,
-               motivo,
-               referencia_tipo,
-               referencia_id,
-               usuario,
-               fecha
-             ) VALUES (?, ?, 'DEVOLUCION_VENTA', ?, 0, ?, ?, 'VENTA', ?, ?, NOW())`,
-            [
-              item.id_variante,
-              dist.id_bodega,
-              dist.cantidad,
-              stockNuevo,
-              `Anulación de venta ${sale.numero_venta}${motivo ? `: ${motivo}` : ""}`,
-              saleId,
-              context.id_usuario,
-            ]
-          ).catch((e) => console.error("Error insertando movimiento kardex:", e));
-        }
+        await applyStockMovement({
+          connection: conn,
+          idVariante: item.id_variante,
+          idBodega: dist.id_bodega,
+          tipo: "DEVOLUCION_CLIENTE",
+          cantidad: dist.cantidad,
+          referenciaTipo: "VENTA",
+          referenciaId: saleId,
+          motivo: `Anulación de venta #${sale.numero_venta}${motivo ? `: ${motivo}` : ""}`,
+          usuarioId: context.id_usuario,
+        });
       }
     }
 
