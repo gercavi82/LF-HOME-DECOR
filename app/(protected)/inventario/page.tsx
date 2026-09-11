@@ -6,6 +6,7 @@ import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead }
 import { getInventory, type InventoryStatus } from "@/src/services/inventory/inventory";
 import { getAuthContext, ROLE_NAMES } from "@/src/services/auth/authorization";
 import { InventoryExportMenu } from "@/src/components/inventory/inventory-export-menu";
+import { RebuildKardexButton } from "@/src/components/inventory/rebuild-kardex-button";
 
 const statusPresentation: Record<InventoryStatus, { label: string; variant: "success" | "warning" | "danger" }> = {
   DISPONIBLE: { label: "Disponible", variant: "success" },
@@ -35,16 +36,24 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       }
     />
     {inventory.summary.inconsistencies > 0 ? (
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
         <div className="flex items-center gap-3">
           <AlertTriangle className="size-5 shrink-0 text-red-600" />
-          <p className="text-sm">
-            <strong className="font-semibold">Alerta de consistencia:</strong> Se detectaron {inventory.summary.inconsistencies} registro(s) cuyo stock en tabla difiere del cálculo acumulado del Kardex.
-          </p>
+          <div>
+            <p className="text-sm">
+              <strong className="font-semibold">Alerta de consistencia:</strong> Se detectaron {inventory.summary.inconsistencies} registro(s) cuyo stock en tabla difiere del cálculo acumulado del Kardex.
+            </p>
+            <p className="mt-0.5 text-xs text-red-700">
+              El Kardex histórico no tiene registrados los movimientos de compras o inventario inicial anteriores.
+            </p>
+          </div>
         </div>
-        <Link href="/inventario/movimientos" className="text-sm font-semibold underline hover:text-red-900">
-          Revisar movimientos
-        </Link>
+        <div className="flex items-center gap-3">
+          {canAdjust ? <RebuildKardexButton /> : null}
+          <Link href="/inventario/movimientos" className="text-sm font-semibold underline hover:text-red-900">
+            Revisar movimientos
+          </Link>
+        </div>
       </div>
     ) : null}
 
@@ -109,8 +118,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                           {item.stock_actual}
                         </span>
                         {item.inconsistencia ? (
-                          <span className="flex items-center gap-1 text-[11px] font-semibold text-red-600" title={`Diferencia con Kardex: ${item.diferencia}`}>
-                            <AlertTriangle size={12} /> Descuadre ({item.stock_kardex})
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-red-600" title={`Stock físico: ${item.stock_actual} | Saldo Kardex: ${item.stock_kardex} | Descuadre neto: ${item.diferencia}`}>
+                            <AlertTriangle size={12} /> Descuadre ({item.diferencia > 0 ? `+${item.diferencia}` : item.diferencia})
                           </span>
                         ) : null}
                       </div>

@@ -242,9 +242,9 @@ LEFT JOIN (
     WHERE tipo = 'COMPRA' AND referencia_tipo = 'COMPRA' AND referencia_id IS NOT NULL
     GROUP BY referencia_id, id_variante
 ) m_agg ON m_agg.referencia_id = dc_agg.id_compra AND m_agg.id_variante = dc_agg.id_variante
-WHERE c.estado != 'ANULADA'
+WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
   AND ABS(dc_agg.cantidad_detalle - COALESCE(m_agg.cantidad_kardex, 0)) > 0.0001
-ORDER BY ABS(dc_agg.cantidad_detalle - COALESCE(m_agg.cantidad_kardex, 0)) DESC;
+ORDER BY c.fecha, dc_agg.id_compra, dc_agg.id_variante;
 
 -- SECCIÓN K: Consistencia SUM(detalle_ventas) vs SUM(movimientos VENTA) por id_venta/variante
 SELECT
