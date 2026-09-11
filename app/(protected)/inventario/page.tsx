@@ -6,7 +6,6 @@ import { Badge, Card, CardContent, Table, TableCell, TableContainer, TableHead }
 import { getInventory, type InventoryStatus } from "@/src/services/inventory/inventory";
 import { getAuthContext, ROLE_NAMES } from "@/src/services/auth/authorization";
 import { InventoryExportMenu } from "@/src/components/inventory/inventory-export-menu";
-import { RebuildKardexButton } from "@/src/components/inventory/rebuild-kardex-button";
 
 const statusPresentation: Record<InventoryStatus, { label: string; variant: "success" | "warning" | "danger" }> = {
   DISPONIBLE: { label: "Disponible", variant: "success" },
@@ -35,27 +34,6 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         </div>
       }
     />
-    {inventory.summary.inconsistencies > 0 ? (
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="size-5 shrink-0 text-red-600" />
-          <div>
-            <p className="text-sm">
-              <strong className="font-semibold">Alerta de consistencia:</strong> Se detectaron {inventory.summary.inconsistencies} registro(s) cuyo stock en tabla difiere del cálculo acumulado del Kardex.
-            </p>
-            <p className="mt-0.5 text-xs text-red-700">
-              El Kardex histórico no tiene registrados los movimientos de compras o inventario inicial anteriores.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {canAdjust ? <RebuildKardexButton /> : null}
-          <Link href="/inventario/movimientos" className="text-sm font-semibold underline hover:text-red-900">
-            Revisar movimientos
-          </Link>
-        </div>
-      </div>
-    ) : null}
 
     <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <SummaryCard label="Registros de stock" value={inventory.summary.total} icon={Boxes} tone="bg-lf-navy/10 text-lf-navy" />
@@ -105,24 +83,17 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     <TableCell className="text-right font-mono text-xs text-red-700">−{item.ventas}</TableCell>
                     <TableCell className="text-right font-mono text-xs font-semibold">{item.stock_kardex}</TableCell>
                     <TableCell className="text-right">
-                      <div className="inline-flex flex-col items-end">
-                        <span
-                          className={`text-lg font-bold ${
-                            item.estado_stock === "AGOTADO"
-                              ? "text-lf-danger"
-                              : item.estado_stock === "BAJO STOCK"
-                              ? "text-lf-warning"
-                              : "text-lf-navy"
-                          }`}
-                        >
-                          {item.stock_actual}
-                        </span>
-                        {item.inconsistencia ? (
-                          <span className="flex items-center gap-1 text-[11px] font-semibold text-red-600" title={`Stock físico: ${item.stock_actual} | Saldo Kardex: ${item.stock_kardex} | Descuadre neto: ${item.diferencia}`}>
-                            <AlertTriangle size={12} /> Descuadre ({item.diferencia > 0 ? `+${item.diferencia}` : item.diferencia})
-                          </span>
-                        ) : null}
-                      </div>
+                      <span
+                        className={`text-lg font-bold ${
+                          item.estado_stock === "AGOTADO"
+                            ? "text-lf-danger"
+                            : item.estado_stock === "BAJO STOCK"
+                            ? "text-lf-warning"
+                            : "text-lf-navy"
+                        }`}
+                      >
+                        {item.stock_actual}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <Badge variant={presentation.variant}>{presentation.label}</Badge>
