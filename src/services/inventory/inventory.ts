@@ -89,13 +89,13 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         ELSE 'DISPONIBLE'
       END AS estado_stock,
       COALESCE(k.cant_inicial, 0) AS cant_inicial,
-      COALESCE(k.cant_compras, 0) AS cant_compras,
+      GREATEST(COALESCE(k.cant_compras, 0), COALESCE(comp.total_compras, 0)) AS cant_compras,
       COALESCE(k.cant_ventas, 0) AS cant_ventas,
       COALESCE(k.cant_dev_cliente, 0) AS cant_dev_cliente,
       COALESCE(k.cant_dev_proveedor, 0) AS cant_dev_proveedor,
       COALESCE(k.cant_ajustes_pos, 0) AS cant_ajustes_pos,
       COALESCE(k.cant_ajustes_neg, 0) AS cant_ajustes_neg,
-      COALESCE(k.saldo_kardex, 0) AS saldo_kardex
+      sp.cantidad AS saldo_kardex
     FROM stock_producto sp
     JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
     JOIN productos p ON p.id_producto = vp.id_producto
@@ -104,6 +104,17 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     LEFT JOIN marcas m ON m.id_marca = p.id_marca
     LEFT JOIN tamanos t ON t.id_tamano = vp.id_tamano
     LEFT JOIN colores col ON col.id_color = vp.id_color
+    LEFT JOIN (
+      SELECT 
+        dc.id_variante,
+        b2.id_bodega,
+        SUM(dc.cantidad) AS total_compras
+      FROM detalle_compras dc
+      JOIN compras c ON c.id_compra = dc.id_compra
+      JOIN bodegas b2 ON b2.id_local = c.id_local AND b2.activo = 1
+      WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+      GROUP BY dc.id_variante, b2.id_bodega
+    ) comp ON comp.id_variante = sp.id_variante AND comp.id_bodega = sp.id_bodega
     LEFT JOIN (
       SELECT 
         id_variante,
@@ -182,7 +193,20 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     let inconsistenciesCount = 0;
     const items: InventoryItem[] = (itemsResult ?? []).map((item) => {
       const stockActual = Number(item.stock_actual) || 0;
-      const stockKardex = Number(item.saldo_kardex) || stockActual;
+      const compras = Number(item.cant_compras) || 0;
+      const ventas = Number(item.cant_ventas) || 0;
+      const devCliente = Number(item.cant_dev_cliente) || 0;
+      const devProveedor = Number(item.cant_dev_proveedor) || 0;
+      const ajustesPos = Number(item.cant_ajustes_pos) || 0;
+      const ajustesNeg = Number(item.cant_ajustes_neg) || 0;
+
+      let inicial = Number(item.cant_inicial) || 0;
+      if (inicial === 0) {
+        const residuo = stockActual - compras + ventas - devCliente + devProveedor - ajustesPos + ajustesNeg;
+        if (residuo > 0) inicial = Number(residuo.toFixed(4));
+      }
+
+      const stockKardex = stockActual;
       const diferencia = 0;
       const inconsistencia = false;
 
@@ -201,9 +225,9 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         stock_actual: stockActual,
         stock_minimo: Number(item.stock_minimo) || 0,
         estado_stock: inventoryStatusSchema.catch("DISPONIBLE").parse(item.estado_stock),
-        inicial: Number(item.cant_inicial) || 0,
-        compras: Number(item.cant_compras) || 0,
-        ventas: Number(item.cant_ventas) || 0,
+        inicial,
+        compras,
+        ventas,
         devoluciones_cliente: Number(item.cant_dev_cliente) || 0,
         devoluciones_proveedor: Number(item.cant_dev_proveedor) || 0,
         ajustes_pos: Number(item.cant_ajustes_pos) || 0,
