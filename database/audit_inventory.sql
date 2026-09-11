@@ -68,7 +68,7 @@ WHERE ABS(sp.cantidad - COALESCE(k.saldo_kardex, 0)) > 0.0001;
 -- SECCIÓN C: Compras registradas en detalle_compras sin movimiento de entrada
 SELECT 
     c.id_compra,
-    c.numero_factura,
+    c.numero_compra,
     c.fecha,
     dc.id_variante,
     dc.cantidad AS cantidad_comprada,
@@ -89,7 +89,7 @@ WHERE c.estado != 'ANULADA'
 -- SECCIÓN D: Ventas registradas en detalle_ventas sin movimiento de salida
 SELECT 
     v.id_venta,
-    v.numero_factura,
+    v.numero_venta,
     v.fecha,
     dv.id_variante,
     dv.cantidad AS cantidad_vendida,
@@ -221,7 +221,7 @@ ORDER BY ABS(sp.cantidad - COALESCE(m_last.stock_nuevo, 0)) DESC;
 -- SECCIÓN J: Consistencia SUM(detalle_compras) vs SUM(movimientos COMPRA) por id_compra/variante
 SELECT
     dc_agg.id_compra,
-    c.numero_factura,
+    c.numero_compra,
     c.fecha AS fecha_compra,
     dc_agg.id_variante,
     p.descripcion AS producto,
@@ -249,7 +249,7 @@ ORDER BY ABS(dc_agg.cantidad_detalle - COALESCE(m_agg.cantidad_kardex, 0)) DESC;
 -- SECCIÓN K: Consistencia SUM(detalle_ventas) vs SUM(movimientos VENTA) por id_venta/variante
 SELECT
     dv_agg.id_venta,
-    v.numero_factura,
+    v.numero_venta,
     v.fecha AS fecha_venta,
     dv_agg.id_variante,
     p.descripcion AS producto,

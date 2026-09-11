@@ -140,7 +140,7 @@ async function sectionC(conn) {
   const [rows] = await conn.execute(`
     SELECT 
       c.id_compra,
-      c.numero_factura,
+      c.numero_compra,
       c.fecha,
       dc.id_variante,
       SUM(dc.cantidad) AS cantidad_compra,
@@ -156,7 +156,7 @@ async function sectionC(conn) {
       AND m.tipo = 'COMPRA'
     WHERE c.estado != 'ANULADA'
       AND m.id_movimiento IS NULL
-    GROUP BY c.id_compra, c.numero_factura, c.fecha, dc.id_variante, p.descripcion
+    GROUP BY c.id_compra, c.numero_compra, c.fecha, dc.id_variante, p.descripcion
     ORDER BY c.fecha DESC
   `);
   if (rows.length === 0) {
@@ -175,7 +175,7 @@ async function sectionD(conn) {
   const [rows] = await conn.execute(`
     SELECT 
       v.id_venta,
-      v.numero_factura,
+      v.numero_venta,
       v.fecha,
       dv.id_variante,
       SUM(dv.cantidad) AS cantidad_venta,
@@ -191,7 +191,7 @@ async function sectionD(conn) {
       AND m.tipo = 'VENTA'
     WHERE v.estado != 'ANULADA'
       AND m.id_movimiento IS NULL
-    GROUP BY v.id_venta, v.numero_factura, v.fecha, dv.id_variante, p.descripcion
+    GROUP BY v.id_venta, v.numero_venta, v.fecha, dv.id_variante, p.descripcion
     ORDER BY v.fecha DESC
   `);
   if (rows.length === 0) {
@@ -366,7 +366,7 @@ async function sectionJ(conn) {
   const [rows] = await conn.execute(`
     SELECT 
       dc_agg.id_compra,
-      c.numero_factura,
+      c.numero_compra,
       dc_agg.id_variante,
       p.descripcion AS producto,
       dc_agg.cantidad_detalle,
@@ -408,7 +408,7 @@ async function sectionK(conn) {
   const [rows] = await conn.execute(`
     SELECT 
       dv_agg.id_venta,
-      v.numero_factura,
+      v.numero_venta,
       dv_agg.id_variante,
       p.descripcion AS producto,
       dv_agg.cantidad_detalle,
