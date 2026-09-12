@@ -13,6 +13,8 @@ interface SalesExportMenuProps {
     canal?: string;
     estado?: string;
     mes?: string;
+    tipo?: string;
+    tamano?: string;
   };
 }
 
@@ -41,6 +43,8 @@ export function SalesExportMenu({ currentParams }: SalesExportMenuProps) {
     if (currentParams.canal) params.set("canal", currentParams.canal);
     if (currentParams.estado) params.set("estado", currentParams.estado);
     if (currentParams.mes) params.set("mes", currentParams.mes);
+    if (currentParams.tipo) params.set("tipo", currentParams.tipo);
+    if (currentParams.tamano) params.set("tamano", currentParams.tamano);
 
     return `/api/exportar/ventas?${params.toString()}`;
   };

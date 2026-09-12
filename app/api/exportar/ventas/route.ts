@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
     const canal = searchParams.get("canal") || "";
     const estado = searchParams.get("estado") || "";
     const mes = searchParams.get("mes") || "";
+    const tipo = searchParams.get("tipo") || "";
+    const tamano = searchParams.get("tamano") || "";
 
     const { sales, summary } = await listSales({
       q,
@@ -30,6 +32,8 @@ export async function GET(request: NextRequest) {
       canalId: canal,
       estado,
       mes,
+      tipoId: tipo,
+      tamanoId: tamano,
       limit: 5000,
     });
 

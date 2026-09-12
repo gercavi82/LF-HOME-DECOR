@@ -37,6 +37,9 @@ export type SalesFilterParams = {
   desde?: string;
   hasta?: string;
   mes?: string;
+  tipoId?: string;
+  tamanoId?: string;
+  productoId?: string;
   limit?: number;
 };
 
@@ -160,6 +163,8 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   advisors: Array<{ id: number; nombre: string }>;
   locales: Array<{ id: number; nombre: string }>;
   canales: Array<{ id: number; nombre: string }>;
+  tipos: Array<{ id: number; nombre: string }>;
+  tamanos: Array<{ id: number; nombre: string }>;
   count: number;
   context: AuthContext;
 }> {
@@ -176,6 +181,9 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
   const selectedDesde = filterParams.desde?.trim() || "";
   const selectedHasta = filterParams.hasta?.trim() || "";
   const selectedMes = filterParams.mes?.trim() || "";
+  const selectedTipoId = filterParams.tipoId ? Number(filterParams.tipoId) : null;
+  const selectedTamanoId = filterParams.tamanoId ? Number(filterParams.tamanoId) : null;
+  const selectedProductoId = filterParams.productoId ? Number(filterParams.productoId) : null;
   const limitValue = filterParams.limit && filterParams.limit > 0 ? Math.min(filterParams.limit, 10000) : 150;
 
   await ensureCustomTables().catch(() => null);
@@ -255,6 +263,49 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
     params.push(selectedMes);
   }
 
+  if (selectedTipoId && selectedTipoId > 0 && selectedTamanoId && selectedTamanoId > 0) {
+    whereClauses.push(`EXISTS (
+      SELECT 1
+      FROM detalle_ventas dv_filtro
+      JOIN variantes_producto vp_filtro ON vp_filtro.id_variante = dv_filtro.id_variante
+      JOIN productos prod_filtro ON prod_filtro.id_producto = vp_filtro.id_producto
+      WHERE dv_filtro.id_venta = v.id_venta
+        AND prod_filtro.id_tipo = ?
+        AND vp_filtro.id_tamano = ?
+    )`);
+    params.push(selectedTipoId, selectedTamanoId);
+  } else if (selectedTipoId && selectedTipoId > 0) {
+    whereClauses.push(`EXISTS (
+      SELECT 1
+      FROM detalle_ventas dv_tipo
+      JOIN variantes_producto vp_tipo ON vp_tipo.id_variante = dv_tipo.id_variante
+      JOIN productos prod_tipo ON prod_tipo.id_producto = vp_tipo.id_producto
+      WHERE dv_tipo.id_venta = v.id_venta
+        AND prod_tipo.id_tipo = ?
+    )`);
+    params.push(selectedTipoId);
+  } else if (selectedTamanoId && selectedTamanoId > 0) {
+    whereClauses.push(`EXISTS (
+      SELECT 1
+      FROM detalle_ventas dv_tam
+      JOIN variantes_producto vp_tam ON vp_tam.id_variante = dv_tam.id_variante
+      WHERE dv_tam.id_venta = v.id_venta
+        AND vp_tam.id_tamano = ?
+    )`);
+    params.push(selectedTamanoId);
+  }
+
+  if (selectedProductoId && selectedProductoId > 0) {
+    whereClauses.push(`EXISTS (
+      SELECT 1
+      FROM detalle_ventas dv_prod
+      JOIN variantes_producto vp_prod ON vp_prod.id_variante = dv_prod.id_variante
+      WHERE dv_prod.id_venta = v.id_venta
+        AND vp_prod.id_producto = ?
+    )`);
+    params.push(selectedProductoId);
+  }
+
   if (normalized) {
     const tokens = normalized.split(/\s+/).filter(Boolean);
     const searchTarget = (token: string) => {
@@ -313,7 +364,7 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       expenseParams.push(selectedLocalId);
     }
 
-    const [rows, advisorRows, localRows, channelRows, expenseRows] = await Promise.all([
+    const [rows, advisorRows, localRows, channelRows, expenseRows, typeRows, sizeRows] = await Promise.all([
       query<SaleListRowRaw & { costo_total: number; utilidad: number; comision_asesor: number; comision_local: number }>(sql, params),
       query<{ id: number; nombre: string }>(
         `SELECT id_usuario AS id, CONCAT(nombres, ' ', apellidos) AS nombre FROM usuarios WHERE activo = 1 AND id_perfil IN (1, 2, 3) AND nombres NOT LIKE '%Iralda%' AND apellidos NOT LIKE '%Manos%' ORDER BY nombres ASC`
@@ -325,6 +376,12 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
         `SELECT id_canal AS id, nombre FROM canales_venta WHERE activo = 1 ORDER BY nombre ASC`
       ).catch(() => []),
       query<{ total_gastos: number }>(expenseSql, expenseParams).catch(() => [{ total_gastos: 0 }]),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_tipo AS id, nombre FROM tipos_producto WHERE activo = 1 ORDER BY nombre ASC`
+      ).catch(() => []),
+      query<{ id: number; nombre: string }>(
+        `SELECT id_tamano AS id, nombre FROM tamanos WHERE activo = 1 ORDER BY nombre ASC`
+      ).catch(() => []),
     ]);
 
     const totalGastos = Number(expenseRows?.[0]?.total_gastos) || 0;
@@ -371,6 +428,8 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
       advisors: (advisorRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
       locales: (localRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
       canales: (channelRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
+      tipos: (typeRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
+      tamanos: (sizeRows ?? []).map((r) => ({ id: Number(r.id), nombre: String(r.nombre) })),
       count: mapped.length,
       context,
     };

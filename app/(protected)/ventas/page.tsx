@@ -27,6 +27,8 @@ export default async function SalesPage({
     desde?: string;
     hasta?: string;
     mes?: string;
+    tipo?: string;
+    tamano?: string;
     page?: string;
     created?: string;
   }>;
@@ -40,11 +42,13 @@ export default async function SalesPage({
     desde = "",
     hasta = "",
     mes = "",
+    tipo = "",
+    tamano = "",
     page = "1",
     created,
   } = await searchParams;
 
-  const { sales, summary, advisors, locales, canales, count, context } = await listSales({
+  const { sales, summary, advisors, locales, canales, tipos, tamanos, count, context } = await listSales({
     q,
     asesorId: asesor,
     localId: local,
@@ -53,13 +57,15 @@ export default async function SalesPage({
     desde,
     hasta,
     mes,
+    tipoId: tipo,
+    tamanoId: tamano,
   });
 
   const canCreate =
     context.perfil === "Administrador" ||
     context.permisos.some((permission) => permission.codigo === "VENTA_CREAR");
 
-  const hasActiveFilters = Boolean(q || asesor || local || canal || estado || desde || hasta || mes);
+  const hasActiveFilters = Boolean(q || asesor || local || canal || estado || desde || hasta || mes || tipo || tamano);
 
   // Cálculo de paginación de 7 en 7
   const totalItems = sales.length;
@@ -80,6 +86,8 @@ export default async function SalesPage({
     if (desde) params.set("desde", desde);
     if (hasta) params.set("hasta", hasta);
     if (mes) params.set("mes", mes);
+    if (tipo) params.set("tipo", tipo);
+    if (tamano) params.set("tamano", tamano);
     if (newPage > 1) params.set("page", String(newPage));
     const qs = params.toString();
     return qs ? `/ventas?${qs}` : "/ventas";
@@ -94,7 +102,7 @@ export default async function SalesPage({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <SalesExportMenu
-              currentParams={{ q, asesor, local, canal, estado, desde, hasta, mes }}
+              currentParams={{ q, asesor, local, canal, estado, desde, hasta, mes, tipo, tamano }}
             />
             <Link
               href="/ventas/historial"
@@ -162,7 +170,7 @@ export default async function SalesPage({
 
       {/* Formulario de Filtros Interactivos */}
       <form method="GET" className="mb-5 rounded-2xl border bg-lf-surface p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {/* Búsqueda por texto */}
           <div className="xl:col-span-2">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
@@ -279,23 +287,61 @@ export default async function SalesPage({
             </select>
           </div>
 
-          {/* Botones de acción */}
-          <div className="flex items-end gap-2 sm:col-span-2 md:col-span-1 lg:col-span-2 xl:col-span-2">
-            <button
-              type="submit"
-              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-4 text-sm font-semibold text-white hover:bg-lf-navy-hover transition"
+          {/* Filtro Tipo de Producto */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Tipo de producto
+            </span>
+            <select
+              name="tipo"
+              defaultValue={tipo}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
             >
-              <Filter size={15} /> Aplicar filtros
-            </button>
+              <option value="">Todos los tipos</option>
+              {tipos?.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtro Tamaño de Producto */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-lf-muted">
+              Tamaño de producto
+            </span>
+            <select
+              name="tamano"
+              defaultValue={tamano}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none focus:border-lf-terracotta"
+            >
+              <option value="">Todos los tamaños</option>
+              {tamanos?.map((tm) => (
+                <option key={tm.id} value={tm.id}>
+                  {tm.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex items-center justify-end gap-2 pt-1 sm:col-span-2 md:col-span-3 lg:col-span-4 xl:col-span-5">
             {hasActiveFilters ? (
               <Link
                 href="/ventas"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-3 text-sm font-medium text-lf-muted hover:text-lf-navy transition"
+                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border bg-lf-surface-muted px-4 text-sm font-medium text-lf-muted hover:text-lf-navy transition"
                 title="Limpiar filtros"
               >
-                <RotateCcw size={15} /> Limpiar
+                <RotateCcw size={15} /> Limpiar filtros
               </Link>
             ) : null}
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-lf-navy px-5 text-sm font-semibold text-white hover:bg-lf-navy-hover transition shadow-sm"
+            >
+              <Filter size={15} /> Aplicar filtros
+            </button>
           </div>
         </div>
       </form>
