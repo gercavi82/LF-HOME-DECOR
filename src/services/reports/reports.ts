@@ -147,7 +147,7 @@ export async function getFinancialReport(filters?: {
         comision_local: number;
       }>(
         `SELECT 
-           DATE_FORMAT(v.fecha, '%Y-%m') AS year_month,
+           DATE_FORMAT(v.fecha, '%Y-%m') AS \`year_month\`,
            COALESCE(SUM((SELECT SUM(cantidad) FROM detalle_ventas dv WHERE dv.id_venta = v.id_venta)), 0) AS unidades,
            COALESCE(SUM(v.total), 0) AS total_ventas,
            COALESCE(SUM(v.costo_total), 0) AS total_costo,
@@ -161,31 +161,40 @@ export async function getFinancialReport(filters?: {
          GROUP BY DATE_FORMAT(v.fecha, '%Y-%m')
          ORDER BY DATE_FORMAT(v.fecha, '%Y-%m') ASC`,
         params
-      ).catch(() => []),
+      ).catch((err) => {
+        console.error("Error en query de ventas mensuales:", err);
+        return [];
+      }),
       query<{
         year_month: string;
         total_compras: number;
       }>(
         `SELECT 
-           DATE_FORMAT(c.fecha, '%Y-%m') AS year_month,
+           DATE_FORMAT(c.fecha, '%Y-%m') AS \`year_month\`,
            COALESCE(SUM(c.total), 0) AS total_compras
          FROM compras c
          WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
          GROUP BY DATE_FORMAT(c.fecha, '%Y-%m')
          ORDER BY DATE_FORMAT(c.fecha, '%Y-%m') ASC`
-      ).catch(() => []),
+      ).catch((err) => {
+        console.error("Error en query de compras mensuales:", err);
+        return [];
+      }),
       query<{
         year_month: string;
         total_gastos: number;
       }>(
         `SELECT 
-           DATE_FORMAT(g.fecha, '%Y-%m') AS year_month,
+           DATE_FORMAT(g.fecha, '%Y-%m') AS \`year_month\`,
            COALESCE(SUM(g.monto), 0) AS total_gastos
          FROM gastos g
          WHERE g.activo = 1
          GROUP BY DATE_FORMAT(g.fecha, '%Y-%m')
          ORDER BY DATE_FORMAT(g.fecha, '%Y-%m') ASC`
-      ).catch(() => []),
+      ).catch((err) => {
+        console.error("Error en query de gastos mensuales:", err);
+        return [];
+      }),
     ]);
 
     const purchaseMap = new Map<string, number>();
