@@ -54,7 +54,7 @@ SELECT
     CONCAT('Compra histórica ', COALESCE(c.numero_compra, CAST(c.id_compra AS CHAR))) AS motivo,
     'COMPRA' AS referencia_tipo,
     c.id_compra AS referencia_id,
-    'SISTEMA' AS usuario
+    1 AS usuario
 FROM detalle_compras dc
 JOIN compras c ON c.id_compra = dc.id_compra
 JOIN bodegas b ON b.id_local = c.id_local AND b.activo = 1
@@ -103,7 +103,7 @@ SELECT
     'Reconstrucción histórica de inventario inicial' AS motivo,
     'RECONSTRUCCION_INICIAL' AS referencia_tipo,
     NULL AS referencia_id,
-    'SISTEMA' AS usuario
+    1 AS usuario
 FROM (
     SELECT 
         sp.id_variante,

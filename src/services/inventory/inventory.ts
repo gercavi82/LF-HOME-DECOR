@@ -90,7 +90,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
       END AS estado_stock,
       COALESCE(k.cant_inicial, 0) AS cant_inicial,
       GREATEST(COALESCE(k.cant_compras, 0), COALESCE(comp.total_compras, 0)) AS cant_compras,
-      COALESCE(k.cant_ventas, 0) AS cant_ventas,
+      GREATEST(COALESCE(k.cant_ventas, 0), COALESCE(vent.total_ventas, 0)) AS cant_ventas,
       COALESCE(k.cant_dev_cliente, 0) AS cant_dev_cliente,
       COALESCE(k.cant_dev_proveedor, 0) AS cant_dev_proveedor,
       COALESCE(k.cant_ajustes_pos, 0) AS cant_ajustes_pos,
@@ -115,6 +115,17 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
       WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
       GROUP BY dc.id_variante, b2.id_bodega
     ) comp ON comp.id_variante = sp.id_variante AND comp.id_bodega = sp.id_bodega
+    LEFT JOIN (
+      SELECT 
+        dv.id_variante,
+        b3.id_bodega,
+        SUM(dv.cantidad) AS total_ventas
+      FROM detalle_ventas dv
+      JOIN ventas v ON v.id_venta = dv.id_venta
+      JOIN bodegas b3 ON b3.id_local = v.id_local AND b3.activo = 1
+      WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+      GROUP BY dv.id_variante, b3.id_bodega
+    ) vent ON vent.id_variante = sp.id_variante AND vent.id_bodega = sp.id_bodega
     LEFT JOIN (
       SELECT 
         id_variante,
@@ -148,16 +159,6 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     params.push(pattern, pattern, pattern);
   }
 
-  if (parsedStatus.success) {
-    if (parsedStatus.data === "AGOTADO") {
-      whereClauses.push(`sp.cantidad <= 0`);
-    } else if (parsedStatus.data === "BAJO STOCK") {
-      whereClauses.push(`sp.cantidad > 0 AND sp.cantidad <= vp.stock_minimo`);
-    } else if (parsedStatus.data === "DISPONIBLE") {
-      whereClauses.push(`sp.cantidad > vp.stock_minimo`);
-    }
-  }
-
   if (whereClauses.length > 0) {
     sql += ` AND ` + whereClauses.join(" AND ");
   }
@@ -166,49 +167,26 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
   sql += ` ORDER BY p.descripcion ASC, b.nombre ASC LIMIT ${limitValue}`;
 
   try {
-    const [itemsResult, countsResult] = await Promise.all([
-      query<InventoryItemRaw>(sql, params),
-      query<{ estado_stock: string; total: number }>(
-        `SELECT 
-           CASE
-             WHEN sp.cantidad <= 0 THEN 'AGOTADO'
-             WHEN sp.cantidad <= vp.stock_minimo THEN 'BAJO STOCK'
-             ELSE 'DISPONIBLE'
-           END AS estado_stock,
-           COUNT(*) AS total 
-         FROM stock_producto sp
-         JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
-         JOIN productos p ON p.id_producto = vp.id_producto
-         JOIN bodegas b ON b.id_bodega = sp.id_bodega
-         WHERE vp.activo = 1 AND p.activo = 1 AND b.activo = 1
-         GROUP BY estado_stock`
-      ),
-    ]);
+    const itemsResult = await query<InventoryItemRaw>(sql, params);
 
-    const countsMap = new Map((countsResult ?? []).map((r) => [r.estado_stock, Number(r.total) || 0]));
-    const availableCount = countsMap.get("DISPONIBLE") || 0;
-    const lowCount = countsMap.get("BAJO STOCK") || 0;
-    const outCount = countsMap.get("AGOTADO") || 0;
-
-    let inconsistenciesCount = 0;
-    const items: InventoryItem[] = (itemsResult ?? []).map((item) => {
-      const stockActual = Number(item.stock_actual) || 0;
+    const rawItems: InventoryItem[] = (itemsResult ?? []).map((item) => {
       const compras = Number(item.cant_compras) || 0;
       const ventas = Number(item.cant_ventas) || 0;
+      const inicial = Number(item.cant_inicial) || 0;
       const devCliente = Number(item.cant_dev_cliente) || 0;
       const devProveedor = Number(item.cant_dev_proveedor) || 0;
-      const ajustesPos = Number(item.cant_ajustes_pos) || 0;
-      const ajustesNeg = Number(item.cant_ajustes_neg) || 0;
 
-      let inicial = Number(item.cant_inicial) || 0;
-      if (inicial === 0) {
-        const residuo = stockActual - compras + ventas - devCliente + devProveedor - ajustesPos + ajustesNeg;
-        if (residuo > 0) inicial = Number(residuo.toFixed(4));
+      // REGLA ESTRICTA DE NEGOCIO:
+      // El stock final surge directamente de: Inicial + Compras - Ventas (+ Devoluciones)
+      const stockFinal = Math.max(0, inicial + compras - ventas + devCliente - devProveedor);
+      const stockMinimo = Number(item.stock_minimo) || 0;
+
+      let estadoStock: InventoryStatus = "DISPONIBLE";
+      if (stockFinal <= 0) {
+        estadoStock = "AGOTADO";
+      } else if (stockFinal <= stockMinimo) {
+        estadoStock = "BAJO STOCK";
       }
-
-      const stockKardex = stockActual;
-      const diferencia = 0;
-      const inconsistencia = false;
 
       return {
         id_stock: Number(item.id_stock),
@@ -222,21 +200,34 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         marca: item.marca ?? null,
         tamano: item.tamano ?? null,
         color: item.color ?? null,
-        stock_actual: stockActual,
-        stock_minimo: Number(item.stock_minimo) || 0,
-        estado_stock: inventoryStatusSchema.catch("DISPONIBLE").parse(item.estado_stock),
+        stock_actual: stockFinal,
+        stock_minimo: stockMinimo,
+        estado_stock: estadoStock,
         inicial,
         compras,
         ventas,
-        devoluciones_cliente: Number(item.cant_dev_cliente) || 0,
-        devoluciones_proveedor: Number(item.cant_dev_proveedor) || 0,
-        ajustes_pos: Number(item.cant_ajustes_pos) || 0,
-        ajustes_neg: Number(item.cant_ajustes_neg) || 0,
-        stock_kardex: stockKardex,
-        inconsistencia,
-        diferencia,
+        devoluciones_cliente: devCliente,
+        devoluciones_proveedor: devProveedor,
+        ajustes_pos: 0,
+        ajustes_neg: 0,
+        stock_kardex: stockFinal,
+        inconsistencia: false,
+        diferencia: 0,
       };
     });
+
+    const items = parsedStatus.success
+      ? rawItems.filter((it) => it.estado_stock === parsedStatus.data)
+      : rawItems;
+
+    let availableCount = 0;
+    let lowCount = 0;
+    let outCount = 0;
+    for (const item of rawItems) {
+      if (item.estado_stock === "DISPONIBLE") availableCount++;
+      else if (item.estado_stock === "BAJO STOCK") lowCount++;
+      else if (item.estado_stock === "AGOTADO") outCount++;
+    }
 
     return {
       items,
@@ -245,8 +236,8 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         available: availableCount,
         low: lowCount,
         out: outCount,
-        total: availableCount + lowCount + outCount,
-        inconsistencies: inconsistenciesCount,
+        total: rawItems.length,
+        inconsistencies: 0,
       },
       status: parsedStatus.success ? parsedStatus.data : null,
     };
