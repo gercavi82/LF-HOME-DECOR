@@ -22,14 +22,16 @@ CREATE TABLE IF NOT EXISTS movimientos_inventario_backup_sync_cv LIKE movimiento
 INSERT IGNORE INTO movimientos_inventario_backup_sync_cv SELECT * FROM movimientos_inventario;
 
 -- ------------------------------------------------------------------------------
--- FASE 1: ELIMINAR AJUSTES DE SALIDA ARTIFICIALES (AJUSTE_FISICO)
+-- FASE 1: ELIMINAR AJUSTES ARTIFICIALES Y MOVIMIENTOS 'INICIAL' RESIDUALES
 -- ------------------------------------------------------------------------------
--- Si se ejecutaron previamente ajustes que restaron stock (-5, -46, -15, etc.),
--- se eliminan para que el Kardex no deduzca unidades fuera de compras y ventas.
+-- Se eliminan tanto los ajustes físicos (-5, -46, etc.) como los inventarios iniciales 
+-- residuales que fueron insertados artificialmente para que el stock sea 100% Compras - Ventas.
 DELETE FROM movimientos_inventario 
-WHERE referencia_tipo = 'AJUSTE_FISICO' 
+WHERE referencia_tipo IN ('AJUSTE_FISICO', 'RECONSTRUCCION_INICIAL') 
+   OR tipo IN ('INICIAL', 'ENTRADA_INICIAL')
    OR motivo LIKE '%Excel cuadre%' 
-   OR motivo LIKE '%conteo físico en tienda%';
+   OR motivo LIKE '%conteo físico en tienda%'
+   OR motivo LIKE '%Reconstrucción histórica de inventario inicial%';
 
 -- ------------------------------------------------------------------------------
 -- FASE 2: ASEGURAR QUE TODAS LAS COMPRAS REALES ESTÉN EN EL KARDEX
@@ -126,8 +128,7 @@ JOIN (
         sp_sub.id_stock,
         GREATEST(
             0,
-            COALESCE(ini.cant_inicial, 0) 
-            + GREATEST(COALESCE(comp_det.total_compras, 0), COALESCE(k_tot.cant_compras, 0)) 
+            GREATEST(COALESCE(comp_det.total_compras, 0), COALESCE(k_tot.cant_compras, 0)) 
             - GREATEST(COALESCE(vent_det.total_ventas, 0), COALESCE(k_tot.cant_ventas, 0))
         ) AS stock_correcto
     FROM stock_producto sp_sub

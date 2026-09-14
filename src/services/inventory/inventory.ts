@@ -172,13 +172,13 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     const rawItems: InventoryItem[] = (itemsResult ?? []).map((item) => {
       const compras = Number(item.cant_compras) || 0;
       const ventas = Number(item.cant_ventas) || 0;
-      const inicial = Number(item.cant_inicial) || 0;
       const devCliente = Number(item.cant_dev_cliente) || 0;
       const devProveedor = Number(item.cant_dev_proveedor) || 0;
 
       // REGLA ESTRICTA DE NEGOCIO:
-      // El stock final surge directamente de: Inicial + Compras - Ventas (+ Devoluciones)
-      const stockFinal = Math.max(0, inicial + compras - ventas + devCliente - devProveedor);
+      // El stock final sale estrictamente de: Compras - Ventas (+ Devoluciones)
+      // Sin inventario inicial artificial residual para que no sume valores indebidos.
+      const stockFinal = Math.max(0, compras - ventas + devCliente - devProveedor);
       const stockMinimo = Number(item.stock_minimo) || 0;
 
       let estadoStock: InventoryStatus = "DISPONIBLE";
@@ -203,7 +203,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         stock_actual: stockFinal,
         stock_minimo: stockMinimo,
         estado_stock: estadoStock,
-        inicial,
+        inicial: 0,
         compras,
         ventas,
         devoluciones_cliente: devCliente,
