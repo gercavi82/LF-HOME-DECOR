@@ -2,6 +2,7 @@ import "server-only";
 
 import { query } from "@/src/lib/db/mysql";
 import { requireAnyPermission } from "@/src/services/auth/authorization";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 export type AlertType =
   | "OUT_OF_STOCK"
@@ -199,9 +200,10 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     }
 
     // 3. Alertas de Gastos Fijos Mensuales (Si hoy >= día 5 y no hay gastos fijos este mes)
-    const currentDay = new Date().getDate();
+    const todayEcuador = getEcuadorDateString();
+    const currentDay = Number(todayEcuador.split("-")[2]);
     if (currentDay >= 5) {
-      const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+      const currentMonth = todayEcuador.slice(0, 7); // YYYY-MM
       const fixedExpenses = await query<{ count: number }>(
         `SELECT COUNT(*) AS count 
          FROM gastos 

@@ -12,6 +12,7 @@ import {
   type PurchasesFilterParams,
 } from "@/src/lib/validation/purchases";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
+import { formatEcuadorDate } from "@/src/lib/date";
 import {
   reconcileSupplierPayments,
   getSupplierAvailableDeposit,
@@ -346,7 +347,7 @@ export async function listPurchases(filters?: PurchasesFilterParams): Promise<{
       const total = Number(r.total) || 0;
       const abonos = Number(r.total_abonado) || 0;
       const saldo = Number(r.saldo_pendiente) || Math.max(0, Number((total - abonos).toFixed(2)));
-      const dateStr = typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10);
+      const dateStr = formatEcuadorDate(r.fecha);
       const purchaseId = Number(r.id_compra);
 
       const itemsList = itemsByPurchaseMap.get(purchaseId) || [];
@@ -485,7 +486,7 @@ export async function listPurchasePayments(purchaseId?: number, supplierId?: num
       id_compra: r.id_compra ? Number(r.id_compra) : null,
       numero_compra: r.numero_compra || "Depósito a Proveedor",
       proveedor: r.proveedor,
-      fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
+      fecha: formatEcuadorDate(r.fecha),
       monto: Number(r.monto) || 0,
       monto_aplicado: Number(r.monto_aplicado) || 0,
       saldo_disponible: Number(r.saldo_disponible) || 0,
@@ -668,7 +669,7 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
     numero_compra: compra.numero_compra,
     id_proveedor: Number(compra.id_proveedor),
     proveedor: compra.proveedor_nombre,
-    fecha: typeof compra.fecha === "string" ? compra.fecha.slice(0, 10) : new Date(compra.fecha).toISOString().slice(0, 10),
+    fecha: formatEcuadorDate(compra.fecha),
     subtotal: Number(compra.subtotal) || 0,
     iva: Number(compra.iva) || 0,
     total,
@@ -698,7 +699,7 @@ export async function getPurchaseById(id: number): Promise<PurchaseDetailRecord 
       id_aplicacion: Number(ab.id_aplicacion),
       id_pago_compra: Number(ab.id_pago_cuenta),
       fecha_aplicacion: typeof ab.fecha_aplicacion === "string" ? ab.fecha_aplicacion.slice(0, 19) : new Date(ab.fecha_aplicacion).toISOString().slice(0, 19),
-      fecha_pago: typeof ab.fecha_pago === "string" ? ab.fecha_pago.slice(0, 10) : new Date(ab.fecha_pago).toISOString().slice(0, 10),
+      fecha_pago: formatEcuadorDate(ab.fecha_pago),
       monto_aplicado: Number(ab.monto_aplicado) || 0,
       forma_pago: ab.forma_pago || "Transferencia",
       referencia: ab.referencia ?? null,

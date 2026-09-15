@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { createPurchaseAction, updatePurchaseAction, type PurchaseActionState } from "@/app/(protected)/compras/actions";
 import { Alert, Button, Input, Spinner } from "@/src/components/ui";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
 
@@ -51,7 +52,7 @@ export function PurchaseForm({
   );
   const [clientPending, startTransition] = useTransition();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEcuadorDateString();
 
   const [idProveedor, setIdProveedor] = useState<number>(defaults?.id_proveedor || catalogs.proveedores[0]?.id || 1);
   const [numeroCompra, setNumeroCompra] = useState<string>(defaults?.numero_compra || "");

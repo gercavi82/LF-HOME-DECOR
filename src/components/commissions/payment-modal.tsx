@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { createCommissionPaymentAction, type CommissionPaymentActionState } from "@/app/(protected)/reportes/comisiones/actions";
 import { Alert, Button, Input, Spinner } from "@/src/components/ui";
 import { commissionPaymentSchema, type CommissionPaymentInput } from "@/src/lib/validation/commissions";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 const initialState: CommissionPaymentActionState = {};
 
@@ -28,7 +29,7 @@ export function CommissionPaymentModal({
   const [state, formAction, serverPending] = useActionState(createCommissionPaymentAction, initialState);
   const [clientPending, startTransition] = useTransition();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEcuadorDateString();
 
   const {
     register,

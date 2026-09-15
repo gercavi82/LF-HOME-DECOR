@@ -14,6 +14,7 @@ import {
   type CreateExpenseInput,
   type CreateExpenseOutput,
 } from "@/src/lib/validation/expenses";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 const initialState: ExpenseActionState = {};
 
@@ -21,7 +22,7 @@ export function ExpenseForm() {
   const [state, formAction, serverPending] = useActionState(createExpenseAction, initialState);
   const [clientPending, startTransition] = useTransition();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEcuadorDateString();
 
   const {
     register,

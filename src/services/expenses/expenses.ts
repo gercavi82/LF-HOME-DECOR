@@ -1,5 +1,6 @@
 import { execute, query } from "@/src/lib/db/mysql";
 import { requirePermission, requireAnyPermission } from "@/src/services/auth/authorization";
+import { formatEcuadorDate } from "@/src/lib/date";
 
 import {
   EXPENSE_CATEGORIES,
@@ -106,7 +107,7 @@ export async function listExpenses(filters?: {
 
     const expenses: ExpenseItem[] = rows.map((r) => ({
       id_gasto: Number(r.id_gasto),
-      fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
+      fecha: formatEcuadorDate(r.fecha),
       categoria: expenseCategorySchema.catch("OPERATIVO").parse(r.categoria),
       descripcion: r.descripcion,
       monto: Number(r.monto) || 0,

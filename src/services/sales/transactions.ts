@@ -6,6 +6,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { transaction } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
 import { applyStockMovement } from "@/src/services/inventory/apply-stock-movement";
+import { getEcuadorDateTimeString, getEcuadorTimeString } from "@/src/lib/date";
 
 export const saleTransactionSchema = z.object({
   id_local: z.coerce.number().int().positive().default(1),
@@ -218,17 +219,15 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     const comisionLocal = Math.round(utilidadVenta * (pctLocal / 100) * 100) / 100;
 
     // 4. Generar número de venta e insertar cabecera
-    const dateStr = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    const dateStr = getEcuadorDateTimeString().replace(/[- :]/g, "");
     const randomHex = randomBytes(3).toString("hex").toUpperCase();
     const numeroVenta = `V-${dateStr}-${randomHex}`;
 
-    let fechaVenta: Date;
+    let fechaVenta: string;
     if (parsed.fecha && /^\d{4}-\d{2}-\d{2}$/.test(parsed.fecha)) {
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-      fechaVenta = new Date(`${parsed.fecha}T${timeStr}`);
+      fechaVenta = `${parsed.fecha} ${getEcuadorTimeString()}`;
     } else {
-      fechaVenta = new Date();
+      fechaVenta = getEcuadorDateTimeString();
     }
 
     const sellerUserId = parsed.id_usuario_asesor ? Number(parsed.id_usuario_asesor) : context.id_usuario;

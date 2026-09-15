@@ -23,6 +23,7 @@ import { Gs1Scanner } from "@/src/components/products/gs1-scanner";
 import { Alert, Badge, Button, Input, Spinner } from "@/src/components/ui";
 import { createSaleAction, createQuickCustomerAction, type SaleActionState } from "@/app/(protected)/ventas/nueva/actions";
 import { calculateIncludedTax } from "@/src/lib/tax";
+import { getEcuadorDateString } from "@/src/lib/date";
 import type { SaleChannel, SaleCustomer, SalePaymentMethod, SaleProduct } from "@/src/services/sales/sales";
 
 type CartItem = SaleProduct & {
@@ -100,7 +101,7 @@ export function SaleWorkspace({
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
   
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getEcuadorDateString();
   const [saleDate, setSaleDate] = useState(todayStr);
 
   const [sellerId, setSellerId] = useState<number>(

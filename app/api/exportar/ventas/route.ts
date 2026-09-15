@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { listSales } from "@/src/services/sales/sales";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
       limit: 5000,
     });
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getEcuadorDateString();
     const fileNameBase = `reporte_ventas_${todayStr}`;
 
     // 1. FORMATO CSV

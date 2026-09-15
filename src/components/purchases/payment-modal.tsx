@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { createPurchasePaymentAction, type PurchasePaymentActionState } from "@/app/(protected)/compras/actions";
 import { Alert, Button, Input, Spinner } from "@/src/components/ui";
 import { purchasePaymentSchema, type PurchasePaymentInput } from "@/src/lib/validation/purchases";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 const initialState: PurchasePaymentActionState = {};
 
@@ -30,7 +31,7 @@ export function PurchasePaymentModal({
   const [state, formAction, serverPending] = useActionState(createPurchasePaymentAction, initialState);
   const [clientPending, startTransition] = useTransition();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEcuadorDateString();
 
   const defaultPurchase = purchases.find((p) => p.id_compra === defaultPurchaseId);
   const initialSupplierId = defaultPurchase?.id_proveedor || suppliers[0]?.id || 1;

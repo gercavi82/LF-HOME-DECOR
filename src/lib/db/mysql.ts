@@ -27,7 +27,7 @@ function getPoolConfig(): PoolOptions {
     connectionLimit: 10,
     queueLimit: 0,
     charset: "utf8mb4",
-    timezone: "+00:00",
+    timezone: "-05:00",
     supportBigNumbers: true,
     bigNumberStrings: false,
     dateStrings: false,
@@ -41,6 +41,11 @@ function getPoolConfig(): PoolOptions {
 export function getPool(): Pool {
   if (!pool) {
     pool = mysql.createPool(getPoolConfig());
+    pool.on("connection", (connection) => {
+      connection.query("SET time_zone = '-05:00'").catch((err) => {
+        console.warn("Could not set session time_zone:", err);
+      });
+    });
   }
   return pool;
 }

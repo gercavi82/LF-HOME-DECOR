@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getInventory } from "@/src/services/inventory/inventory";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     const inventory = await getInventory(q, estado, 10000);
     const { items, summary } = inventory;
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getEcuadorDateString();
     const fileNameBase = `reporte_inventario_${todayStr}`;
 
     const totalUnidades = items.reduce((acc, item) => acc + item.stock_actual, 0);

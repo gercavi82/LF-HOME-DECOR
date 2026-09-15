@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProductsForExport } from "@/src/services/products/products";
+import { getEcuadorDateString } from "@/src/lib/date";
 
 export async function GET() {
   try {
@@ -52,7 +53,7 @@ export async function GET() {
     // BOM UTF-8 (\uFEFF) para apertura inmediata en Excel con tildes y caracteres especiales
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getEcuadorDateString();
     return new NextResponse(csvContent, {
       status: 200,
       headers: {

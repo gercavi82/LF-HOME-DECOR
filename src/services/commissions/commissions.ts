@@ -4,6 +4,7 @@ import { query, execute } from "@/src/lib/db/mysql";
 import { requireAnyPermission, requirePermission } from "@/src/services/auth/authorization";
 import { commissionPaymentSchema, type CommissionPaymentInput } from "@/src/lib/validation/commissions";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
+import { formatEcuadorDate } from "@/src/lib/date";
 
 export type CommissionPayment = {
   id_pago_comision: number;
@@ -236,7 +237,7 @@ export async function listCommissionPayments(advisorId?: number): Promise<Commis
       id_pago_comision: Number(r.id_pago_comision),
       id_usuario: Number(r.id_usuario),
       asesor: r.asesor,
-      fecha: typeof r.fecha === "string" ? r.fecha.slice(0, 10) : new Date(r.fecha).toISOString().slice(0, 10),
+      fecha: formatEcuadorDate(r.fecha),
       monto: Number(r.monto) || 0,
       forma_pago: r.forma_pago || "Transferencia",
       referencia: r.referencia ?? null,
