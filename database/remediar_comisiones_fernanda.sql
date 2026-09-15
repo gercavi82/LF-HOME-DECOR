@@ -22,13 +22,22 @@ JOIN usuarios u ON u.id_usuario = v.id_usuario
 WHERE v.fecha >= '2026-09-13 00:00:00'
 ORDER BY v.fecha DESC;
 
--- 2. SI LAS VENTAS DE FERNANDA QUEDARON CON OTRO USUARIO (ej: Administrador id_usuario = 1):
--- Reasignar las ventas no anuladas del 13 y 14 de septiembre a Fernanda Oñate (id_usuario = 3):
+-- 2. SI LAS VENTAS DE FERNANDA QUEDARON CON OTRO USUARIO:
+-- Opción A: Si quedaron a nombre de Administrador (id_usuario = 1):
 UPDATE ventas 
 SET id_usuario = 3 
 WHERE fecha >= '2026-09-13 00:00:00' 
   AND UPPER(COALESCE(estado, '')) NOT IN ('ANULADA', 'ANULADO')
   AND id_usuario = 1;
+
+-- Opción B: Si las 4 ventas del 13 y 15 de septiembre pertenecían a Fernanda Oñate (id_usuario = 3) 
+-- y se registraron por error a nombre de Lizeth Quishpe (id_usuario = 5):
+UPDATE ventas 
+SET id_usuario = 3 
+WHERE numero_venta LIKE 'V-20260913030317%'
+   OR numero_venta LIKE 'V-20260913030228%'
+   OR numero_venta LIKE 'V-20260913030032%'
+   OR numero_venta LIKE 'V-20260915004903%';
 
 -- 3. RECALCULAR COSTOS, UTILIDADES Y COMISIÓN 60/40 EN DETALLE Y CABECERA DE VENTAS:
 UPDATE detalle_ventas dv
