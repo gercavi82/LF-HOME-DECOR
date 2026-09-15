@@ -575,8 +575,15 @@ export function SaleWorkspace({
 
         {/* Asesor / Vendedor Responsable */}
         <label className="mt-3 block">
-          <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-lf-muted">
-            <UserCheck size={14} className="text-lf-navy" /> Asesor / Vendedor
+          <span className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-lf-muted">
+            <span className="flex items-center gap-1.5">
+              <UserCheck size={14} className="text-lf-navy" /> Asesor / Vendedor Responsable
+            </span>
+            {sellers.find((s) => s.id_usuario === sellerId)?.perfil === "Asesor" ? (
+              <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">
+                Comisión 60% Asesor
+              </span>
+            ) : null}
           </span>
           <select
             value={sellerId}
@@ -589,6 +596,11 @@ export function SaleWorkspace({
               </option>
             ))}
           </select>
+          {sellers.find((s) => s.id_usuario === sellerId)?.perfil !== "Asesor" ? (
+            <p className="mt-1 text-[11px] text-amber-700">
+              💡 Si esta venta corresponde a una asesora (ej: Fernanda Oñate), selecciónela en la lista para que sume a su saldo pendiente de comisiones (60%).
+            </p>
+          ) : null}
         </label>
 
         {/* Cliente con botón para crear nuevo */}

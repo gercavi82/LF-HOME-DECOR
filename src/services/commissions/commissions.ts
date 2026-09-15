@@ -134,9 +134,9 @@ export async function getCommissionsSummary(month?: string): Promise<{
     const advisors: AdvisorCommissionSummary[] = (rows ?? []).map((r) => {
       const ventas = Number(r.total_ventas) || 0;
       const costo = Number(r.total_costo) || 0;
-      const utilidad = Number(r.total_utilidad) || 0;
-      const comisionAsesor = Number(r.comision_asesor) || 0;
-      const comisionLocal = Number(r.comision_local) || 0;
+      const utilidad = Number(r.total_utilidad) || Math.max(0, Number((ventas - costo).toFixed(2)));
+      const comisionAsesor = Number(r.comision_asesor) || Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number(r.comision_local) || Number((utilidad * 0.40).toFixed(2));
       const unidades = Number(r.unidades) || 0;
 
       // Abonos y pagos reales registrados en el período

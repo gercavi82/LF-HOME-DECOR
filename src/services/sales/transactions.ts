@@ -75,8 +75,10 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
     for (const r of (paramRows || []) as { codigo: string; valor: string }[]) {
       paramMap.set(r.codigo, Number(r.valor));
     }
-    const pctAsesor = paramMap.get("COMISION_ASESOR") ?? 60;
-    const pctLocal = paramMap.get("COMISION_LOCAL") ?? 40;
+    const rawPctAsesor = paramMap.get("COMISION_ASESOR");
+    const pctAsesor = rawPctAsesor && rawPctAsesor > 0 ? (rawPctAsesor <= 1 ? rawPctAsesor * 100 : rawPctAsesor) : 60;
+    const rawPctLocal = paramMap.get("COMISION_LOCAL");
+    const pctLocal = rawPctLocal && rawPctLocal > 0 ? (rawPctLocal <= 1 ? rawPctLocal * 100 : rawPctLocal) : 40;
 
     // 1. Validar variantes y calcular total bruto
     let totalBruto = 0;

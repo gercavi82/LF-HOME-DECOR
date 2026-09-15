@@ -386,23 +386,31 @@ export async function listSales(filtersInput?: string | SalesFilterParams): Prom
 
     const totalGastos = Number(expenseRows?.[0]?.total_gastos) || 0;
 
-    const mapped: SaleListItem[] = (rows ?? []).map((sale) => ({
-      id_venta: Number(sale.id_venta),
-      numero_venta: sale.numero_venta || `#${sale.id_venta}`,
-      fecha: String(sale.fecha),
-      local: sale.local_nombre ?? "Local",
-      cliente: sale.cliente_nombre ?? "Consumidor final",
-      canal: sale.canal_nombre ?? "Canal",
-      vendedor: sale.vendedor_nombre ?? "Usuario",
-      total: Number(sale.total) || 0,
-      utilidad: Number(sale.utilidad) || 0,
-      comision_asesor: Number(sale.comision_asesor) || 0,
-      comision_local: Number(sale.comision_local) || 0,
-      unidades: Number(sale.unidades) || 0,
-      observaciones: sale.observaciones,
-      estado: sale.estado,
-      productos: sale.productos_vendidos || "",
-    }));
+    const mapped: SaleListItem[] = (rows ?? []).map((sale) => {
+      const total = Number(sale.total) || 0;
+      const costoTotal = Number(sale.costo_total) || 0;
+      const utilidad = Number(sale.utilidad) || Math.max(0, Number((total - costoTotal).toFixed(2)));
+      const comisionAsesor = Number(sale.comision_asesor) || Number((utilidad * 0.60).toFixed(2));
+      const comisionLocal = Number(sale.comision_local) || Number((utilidad * 0.40).toFixed(2));
+
+      return {
+        id_venta: Number(sale.id_venta),
+        numero_venta: sale.numero_venta || `#${sale.id_venta}`,
+        fecha: String(sale.fecha),
+        local: sale.local_nombre ?? "Local",
+        cliente: sale.cliente_nombre ?? "Consumidor final",
+        canal: sale.canal_nombre ?? "Canal",
+        vendedor: sale.vendedor_nombre ?? "Usuario",
+        total,
+        utilidad,
+        comision_asesor: comisionAsesor,
+        comision_local: comisionLocal,
+        unidades: Number(sale.unidades) || 0,
+        observaciones: sale.observaciones,
+        estado: sale.estado,
+        productos: sale.productos_vendidos || "",
+      };
+    });
 
     const isAnuladaFilter = selectedEstado?.toUpperCase() === "ANULADA" || selectedEstado?.toUpperCase() === "ANULADO";
     const salesForSummary = isAnuladaFilter
