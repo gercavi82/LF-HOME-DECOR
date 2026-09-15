@@ -42,8 +42,13 @@ export function getPool(): Pool {
   if (!pool) {
     pool = mysql.createPool(getPoolConfig());
     pool.on("connection", (connection) => {
-      connection.query("SET time_zone = '-05:00'").catch((err) => {
-        console.warn("Could not set session time_zone:", err);
+      const rawConn = connection as unknown as {
+        query: (sql: string, cb?: (err: Error | null) => void) => void;
+      };
+      rawConn.query("SET time_zone = '-05:00'", (err) => {
+        if (err) {
+          console.warn("Could not set session time_zone:", err.message);
+        }
       });
     });
   }
