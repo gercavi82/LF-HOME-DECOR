@@ -130,6 +130,8 @@ JOIN (
             0,
             GREATEST(COALESCE(comp_det.total_compras, 0), COALESCE(k_tot.cant_compras, 0)) 
             - GREATEST(COALESCE(vent_det.total_ventas, 0), COALESCE(k_tot.cant_ventas, 0))
+            + COALESCE(k_tot.cant_dev_cliente, 0)
+            - COALESCE(k_tot.cant_dev_proveedor, 0)
         ) AS stock_correcto
     FROM stock_producto sp_sub
     LEFT JOIN (
@@ -160,7 +162,9 @@ JOIN (
             id_bodega,
             SUM(CASE WHEN tipo IN ('INICIAL', 'ENTRADA_INICIAL') THEN cantidad ELSE 0 END) AS cant_inicial,
             SUM(CASE WHEN tipo = 'COMPRA' THEN cantidad ELSE 0 END) AS cant_compras,
-            SUM(CASE WHEN tipo = 'VENTA' THEN cantidad ELSE 0 END) AS cant_ventas
+            SUM(CASE WHEN tipo IN ('VENTA') THEN cantidad ELSE 0 END) AS cant_ventas,
+            SUM(CASE WHEN tipo IN ('DEVOLUCION_CLIENTE', 'DEVOLUCION') THEN cantidad ELSE 0 END) AS cant_dev_cliente,
+            SUM(CASE WHEN tipo = 'DEVOLUCION_PROVEEDOR' THEN cantidad ELSE 0 END) AS cant_dev_proveedor
         FROM movimientos_inventario
         GROUP BY id_variante, id_bodega
     ) k_tot ON k_tot.id_variante = sp_sub.id_variante AND k_tot.id_bodega = sp_sub.id_bodega

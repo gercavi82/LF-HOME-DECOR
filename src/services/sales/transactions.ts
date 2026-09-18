@@ -6,6 +6,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { transaction } from "@/src/lib/db/mysql";
 import { requirePermission } from "@/src/services/auth/authorization";
 import { applyStockMovement } from "@/src/services/inventory/apply-stock-movement";
+import { syncStockProducto } from "@/src/services/inventory/sync-stock";
 import { getEcuadorDateTimeString, getEcuadorTimeString } from "@/src/lib/date";
 
 export const saleTransactionSchema = z.object({
@@ -309,7 +310,7 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
       );
 
       // 1. Obtener existencias bloqueadas con FOR UPDATE exclusivamente en bodegas activas del local
-      const [warehouseStocks] = await conn.execute<RowDataPacket[]>(
+      let [warehouseStocks] = await conn.execute<RowDataPacket[]>(
         `SELECT sp.id_stock, sp.id_bodega, sp.cantidad, b.nombre AS bodega_nombre
          FROM stock_producto sp
          JOIN bodegas b ON b.id_bodega = sp.id_bodega
@@ -319,8 +320,24 @@ export async function createSaleTransaction(input: SaleTransactionInput) {
         [line.id_variante, parsed.id_local]
       );
 
-      const availableStocks = (warehouseStocks as unknown as StockRow[]) || [];
-      const totalDisponible = availableStocks.reduce((sum, s) => sum + Math.max(0, Number(s.cantidad) || 0), 0);
+      let availableStocks = (warehouseStocks as unknown as StockRow[]) || [];
+      let totalDisponible = availableStocks.reduce((sum, s) => sum + Math.max(0, Number(s.cantidad) || 0), 0);
+
+      // Si el stock en la tabla no alcanza, sincronizar la variante con la regla real Compras - Ventas y reintentar
+      if (totalDisponible < line.cantidad) {
+        await syncStockProducto(conn, line.id_variante).catch(() => null);
+        const [reloadedStocks] = await conn.execute<RowDataPacket[]>(
+          `SELECT sp.id_stock, sp.id_bodega, sp.cantidad, b.nombre AS bodega_nombre
+           FROM stock_producto sp
+           JOIN bodegas b ON b.id_bodega = sp.id_bodega
+           WHERE sp.id_variante = ? AND b.id_local = ? AND b.activo = 1
+           ORDER BY sp.cantidad DESC, sp.id_bodega ASC
+           FOR UPDATE`,
+          [line.id_variante, parsed.id_local]
+        );
+        availableStocks = (reloadedStocks as unknown as StockRow[]) || [];
+        totalDisponible = availableStocks.reduce((sum, s) => sum + Math.max(0, Number(s.cantidad) || 0), 0);
+      }
 
       // 2. REGLA ESTRICTA: NO PERMITIR VENTA CON STOCK INSUFICIENTE NI STOCK NEGATIVO
       if (totalDisponible < line.cantidad) {

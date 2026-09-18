@@ -455,6 +455,14 @@ export async function ensureCustomTables() {
       // Ignorar en entornos sin BD inicializada
     }
 
+    // Sincronizar stock físico con regla Compras - Ventas
+    try {
+      const { syncStockProducto } = await import("@/src/services/inventory/sync-stock");
+      await syncStockProducto();
+    } catch {
+      // Ignorar en entornos sin BD inicializada
+    }
+
     tablesEnsured = true;
   } catch (error) {
     console.error("ensureCustomTables error (non-fatal):", error);

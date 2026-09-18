@@ -9,6 +9,7 @@ import {
   ROLE_NAMES,
 } from "@/src/services/auth/authorization";
 import { ensureCustomTables } from "@/src/lib/db/ensure-tables";
+import { syncStockProducto } from "@/src/services/inventory/sync-stock";
 
 export type SaleListItem = {
   id_venta: number;
@@ -841,6 +842,7 @@ export async function getSaleDetail(id: number) {
 export async function getSaleWorkspaceContext() {
   const context = await requirePermission("VENTA_CREAR");
   await ensureCustomTables().catch(() => null);
+  await syncStockProducto().catch(() => null);
 
   let locationsSql = `SELECT id_local, nombre FROM locales WHERE activo = 1`;
   const locationsParams: unknown[] = [];
@@ -918,10 +920,56 @@ export async function getSaleWorkspaceContext() {
           `SELECT id_bodega, id_local, nombre FROM bodegas WHERE activo = 1`
         ).catch(() => []),
         query<{ id_variante: number; id_bodega: number; cantidad: number }>(
-          `SELECT id_variante, id_bodega, cantidad FROM stock_producto`
+          `SELECT 
+             sp.id_variante, 
+             sp.id_bodega, 
+             GREATEST(
+               0,
+               GREATEST(COALESCE(k.cant_compras, 0), COALESCE(comp.total_compras, 0))
+               - GREATEST(COALESCE(k.cant_ventas, 0), COALESCE(vent.total_ventas, 0))
+               + COALESCE(k.cant_dev_cliente, 0)
+               - COALESCE(k.cant_dev_proveedor, 0)
+             ) AS cantidad
+           FROM stock_producto sp
+           JOIN variantes_producto vp ON vp.id_variante = sp.id_variante
+           JOIN bodegas b ON b.id_bodega = sp.id_bodega
+           LEFT JOIN (
+             SELECT 
+               dc.id_variante,
+               b2.id_bodega,
+               SUM(dc.cantidad) AS total_compras
+             FROM detalle_compras dc
+             JOIN compras c ON c.id_compra = dc.id_compra
+             JOIN bodegas b2 ON b2.id_local = c.id_local AND b2.activo = 1
+             WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+             GROUP BY dc.id_variante, b2.id_bodega
+           ) comp ON comp.id_variante = sp.id_variante AND comp.id_bodega = sp.id_bodega
+           LEFT JOIN (
+             SELECT 
+               dv.id_variante,
+               b3.id_bodega,
+               SUM(dv.cantidad) AS total_ventas
+             FROM detalle_ventas dv
+             JOIN ventas v ON v.id_venta = dv.id_venta
+             JOIN bodegas b3 ON b3.id_local = v.id_local AND b3.activo = 1
+             WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+             GROUP BY dv.id_variante, b3.id_bodega
+           ) vent ON vent.id_variante = sp.id_variante AND vent.id_bodega = sp.id_bodega
+           LEFT JOIN (
+             SELECT 
+               id_variante,
+               id_bodega,
+               SUM(CASE WHEN tipo = 'COMPRA' THEN cantidad ELSE 0 END) AS cant_compras,
+               SUM(CASE WHEN tipo IN ('VENTA') THEN cantidad ELSE 0 END) AS cant_ventas,
+               SUM(CASE WHEN tipo IN ('DEVOLUCION_CLIENTE', 'DEVOLUCION') THEN cantidad ELSE 0 END) AS cant_dev_cliente,
+               SUM(CASE WHEN tipo = 'DEVOLUCION_PROVEEDOR' THEN cantidad ELSE 0 END) AS cant_dev_proveedor
+             FROM movimientos_inventario
+             GROUP BY id_variante, id_bodega
+           ) k ON k.id_variante = sp.id_variante AND k.id_bodega = sp.id_bodega
+           WHERE vp.activo = 1 AND b.activo = 1`
         ).catch(async () => {
           return query<{ id_variante: number; id_bodega: number; cantidad: number }>(
-            `SELECT id_variante, id_bodega, stock_actual AS cantidad FROM inventario`
+            `SELECT id_variante, id_bodega, cantidad FROM stock_producto`
           ).catch(() => []);
         }),
         query<{ id_canal: number; nombre: string; codigo: string }>(
