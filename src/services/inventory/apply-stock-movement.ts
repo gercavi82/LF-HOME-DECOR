@@ -103,8 +103,26 @@ export async function applyStockMovement(
 
   // 2. Validar que la salida no supere el stock disponible
   if (factor < 0 && stockAnterior < cantidad) {
+    let extraInfo = `variante #${idVariante} en bodega #${idBodega}`;
+    try {
+      const [infoRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT p.descripcion AS producto, vp.codigo_gs1, b.nombre AS bodega
+         FROM variantes_producto vp
+         JOIN productos p ON p.id_producto = vp.id_producto
+         LEFT JOIN bodegas b ON b.id_bodega = ?
+         WHERE vp.id_variante = ? LIMIT 1`,
+        [idBodega, idVariante]
+      );
+      if (infoRows && infoRows.length > 0) {
+        const info = infoRows[0] as { producto: string; codigo_gs1: string; bodega?: string };
+        extraInfo = `"${info.producto}" (${info.codigo_gs1 || `#${idVariante}`}) en bodega "${info.bodega || `#${idBodega}`}"`;
+      }
+    } catch {
+      // Fallback silencioso a la información numérica básica si la consulta informativa falla
+    }
+
     throw new Error(
-      `Stock insuficiente para variante #${idVariante} en bodega #${idBodega}. Disponible: ${stockAnterior}, requerido: ${cantidad}.`
+      `Stock insuficiente para ${extraInfo}. Disponible: ${stockAnterior}, requerido: ${cantidad}.`
     );
   }
 

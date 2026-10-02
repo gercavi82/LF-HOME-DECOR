@@ -827,46 +827,59 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
   const context = await requirePermission("COMPRA_EDITAR");
   const parsed = purchaseCreateSchema.parse(input);
 
+  let oldProveedorId: number | null = null;
+
   await transaction(async (conn) => {
     // 1. Obtener compra y bloquearla
     const [compraRows] = await conn.execute<RowDataPacket[]>(
-      `SELECT id_compra, id_local, numero_compra FROM compras WHERE id_compra = ? FOR UPDATE`,
+      `SELECT id_compra, id_local, id_proveedor, numero_compra, estado FROM compras WHERE id_compra = ? FOR UPDATE`,
       [id]
     );
     if (!compraRows || compraRows.length === 0) {
       throw new Error(`Compra #${id} no encontrada.`);
     }
+    const compra = compraRows[0] as {
+      id_compra: number;
+      id_local: number;
+      id_proveedor: number;
+      numero_compra: string;
+      estado: string;
+    };
+    if (compra.estado === "ANULADA") {
+      throw new Error(`No se puede editar la compra #${compra.numero_compra} porque ya está anulada.`);
+    }
+    oldProveedorId = Number(compra.id_proveedor);
 
-    // 2. Obtener movimientos previos de esta compra para revertirlos con Kardex limpio
-    const [prevMovs] = await conn.execute<RowDataPacket[]>(
-      `SELECT id_variante, id_bodega, cantidad 
-       FROM movimientos_inventario 
-       WHERE referencia_tipo = 'COMPRA' AND referencia_id = ? AND tipo = 'COMPRA'`,
+    // Determinar local y bodega destino
+    const localId = parsed.id_local || compra.id_local || 1;
+    let bodegaId = parsed.id_bodega || null;
+    if (!bodegaId) {
+      const [bodegaRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id_bodega FROM bodegas WHERE id_local = ? AND activo = 1 ORDER BY id_bodega ASC LIMIT 1`,
+        [localId]
+      );
+      bodegaId = Number((bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega) || 1;
+    }
+
+    // 2. Obtener cantidades previas por variante desde detalle_compras
+    const [prevDetails] = await conn.execute<RowDataPacket[]>(
+      `SELECT id_variante, SUM(cantidad) AS cantidad_anterior 
+       FROM detalle_compras 
+       WHERE id_compra = ? 
+       GROUP BY id_variante`,
       [id]
     );
 
-    // Revertir cada movimiento anterior mediante DEVOLUCION_PROVEEDOR
-    for (const mov of (prevMovs as unknown as Array<{ id_variante: number; id_bodega: number; cantidad: number }>) || []) {
-      await applyStockMovement({
-        connection: conn,
-        idVariante: Number(mov.id_variante),
-        idBodega: Number(mov.id_bodega),
-        tipo: "DEVOLUCION_PROVEEDOR",
-        cantidad: Number(mov.cantidad),
-        referenciaTipo: "COMPRA",
-        referenciaId: id,
-        motivo: `Reversión por edición de compra #${parsed.numero_compra}`,
-        usuarioId: context.id_usuario,
-      });
+    const oldQtyMap = new Map<number, number>();
+    for (const row of (prevDetails as unknown as Array<{ id_variante: number; cantidad_anterior: number }>) || []) {
+      oldQtyMap.set(Number(row.id_variante), Math.round(Number(row.cantidad_anterior) * 10000) / 10000);
     }
 
-    // 3. Eliminar detalles anteriores
-    await conn.execute(`DELETE FROM detalle_compras WHERE id_compra = ?`, [id]);
-
-    // 4. Recalcular subtotales y totales nuevos
+    // 3. Recalcular subtotales, totales y mapear nuevas cantidades
     let totalSubtotal = 0;
     let totalIva = 0;
 
+    const newQtyMap = new Map<number, number>();
     const processedItems = parsed.items.map((it) => {
       const itSubtotal = Number((it.cantidad * it.precio_unitario).toFixed(2));
       const itIva = Number((itSubtotal * (it.porcentaje_iva / 100)).toFixed(2));
@@ -874,6 +887,9 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
 
       totalSubtotal += itSubtotal;
       totalIva += itIva;
+
+      const curr = newQtyMap.get(it.id_variante) || 0;
+      newQtyMap.set(it.id_variante, Math.round((curr + Number(it.cantidad)) * 10000) / 10000);
 
       return {
         ...it,
@@ -887,18 +903,57 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
     totalIva = Number(totalIva.toFixed(2));
     const totalGeneral = Number((totalSubtotal + totalIva).toFixed(2));
 
-    // Determinar local y bodega destino
-    let localId = parsed.id_local || (compraRows[0] as { id_local: number }).id_local || 1;
-    let bodegaId = parsed.id_bodega || null;
-    if (!bodegaId) {
-      const [bodegaRows] = await conn.execute<RowDataPacket[]>(
-        `SELECT id_bodega FROM bodegas WHERE id_local = ? AND activo = 1 ORDER BY id_bodega ASC LIMIT 1`,
-        [localId]
-      );
-      bodegaId = Number((bodegaRows?.[0] as { id_bodega: number } | undefined)?.id_bodega) || 1;
+    // 4. Ajustar inventario según el diferencial neto (Delta = Nueva - Anterior)
+    const allVariantIds = new Set<number>([...oldQtyMap.keys(), ...newQtyMap.keys()]);
+
+    for (const idVariante of allVariantIds) {
+      const oldQty = oldQtyMap.get(idVariante) || 0;
+      const newQty = newQtyMap.get(idVariante) || 0;
+      const delta = Math.round((newQty - oldQty) * 10000) / 10000;
+
+      if (delta > 0) {
+        // Ingreso adicional
+        await applyStockMovement({
+          connection: conn,
+          idVariante,
+          idBodega: bodegaId,
+          tipo: "COMPRA",
+          cantidad: delta,
+          referenciaTipo: "COMPRA",
+          referenciaId: id,
+          motivo: `Ingreso adicional por edición de compra #${parsed.numero_compra} (+${delta})`,
+          usuarioId: context.id_usuario,
+        });
+      } else if (delta < 0) {
+        // Reducción de compra
+        const absDelta = Math.abs(delta);
+        await applyStockMovement({
+          connection: conn,
+          idVariante,
+          idBodega: bodegaId,
+          tipo: "DEVOLUCION_PROVEEDOR",
+          cantidad: absDelta,
+          referenciaTipo: "COMPRA",
+          referenciaId: id,
+          motivo: `Reducción por edición de compra #${parsed.numero_compra} (-${absDelta})`,
+          usuarioId: context.id_usuario,
+        });
+      }
+      // Si delta === 0, no hay alteración de stock ni movimiento de kardex
     }
 
-    // 5. Actualizar cabecera de compra
+    // 5. Eliminar detalles anteriores e insertar los nuevos
+    await conn.execute(`DELETE FROM detalle_compras WHERE id_compra = ?`, [id]);
+
+    for (const it of processedItems) {
+      await conn.execute(
+        `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
+      );
+    }
+
+    // 6. Actualizar cabecera de compra
     await conn.execute(
       `UPDATE compras 
        SET id_proveedor = ?, 
@@ -922,48 +977,38 @@ export async function updatePurchase(id: number, input: PurchaseCreateInput): Pr
         id,
       ]
     );
-
-    // 6. Insertar nuevos detalles y aplicar nuevos movimientos
-    for (const it of processedItems) {
-      await conn.execute(
-        `INSERT INTO detalle_compras (id_compra, id_variante, cantidad, precio_unitario, subtotal, iva, total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, it.id_variante, it.cantidad, it.precio_unitario, it.subtotal, it.iva, it.total]
-      );
-
-      await applyStockMovement({
-        connection: conn,
-        idVariante: it.id_variante,
-        idBodega: bodegaId,
-        tipo: "COMPRA",
-        cantidad: it.cantidad,
-        referenciaTipo: "COMPRA",
-        referenciaId: id,
-        motivo: `Ingreso actualizado por edición de compra #${parsed.numero_compra}`,
-        usuarioId: context.id_usuario,
-      });
-    }
   });
 
-  // Reconciliar compras del proveedor
+  // Reconciliar compras del proveedor (y del anterior si cambió de proveedor)
+  if (oldProveedorId && oldProveedorId !== parsed.id_proveedor) {
+    await reconcileSupplierPayments(oldProveedorId, context.id_usuario);
+  }
   await reconcileSupplierPayments(parsed.id_proveedor, context.id_usuario);
 }
 
 export async function voidPurchase(id: number, motivo?: string): Promise<void> {
   const context = await requirePermission("COMPRA_EDITAR");
 
+  let proveedorId: number | null = null;
+
   await transaction(async (conn) => {
     const [compraRows] = await conn.execute<RowDataPacket[]>(
-      `SELECT id_compra, numero_compra, estado FROM compras WHERE id_compra = ? FOR UPDATE`,
+      `SELECT id_compra, numero_compra, estado, id_proveedor FROM compras WHERE id_compra = ? FOR UPDATE`,
       [id]
     );
     if (!compraRows || compraRows.length === 0) {
       throw new Error(`Compra #${id} no encontrada.`);
     }
-    const compra = compraRows[0] as { id_compra: number; numero_compra: string; estado: string };
+    const compra = compraRows[0] as {
+      id_compra: number;
+      numero_compra: string;
+      estado: string;
+      id_proveedor: number;
+    };
     if (compra.estado === "ANULADA") {
       throw new Error(`La compra #${compra.numero_compra} ya se encuentra anulada.`);
     }
+    proveedorId = Number(compra.id_proveedor);
 
     // Obtener movimientos de compra registrados
     const [movRows] = await conn.execute<RowDataPacket[]>(
@@ -994,6 +1039,10 @@ export async function voidPurchase(id: number, motivo?: string): Promise<void> {
       [id]
     );
   });
+
+  if (proveedorId) {
+    await reconcileSupplierPayments(proveedorId, context.id_usuario);
+  }
 }
 
 export async function registerPurchasePayment(input: PurchasePaymentInput) {
