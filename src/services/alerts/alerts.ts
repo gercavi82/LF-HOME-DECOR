@@ -24,6 +24,8 @@ export type AlertItem = {
   type: AlertType;
   valuePrimary?: string | number;
   valueSecondary?: string | number;
+  totalSalesCost?: number;
+  totalDeposits?: number;
 };
 
 export type AlertsSummary = {
@@ -128,6 +130,8 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
           type: "OVERDUE_PAYMENT",
           valuePrimary: `$${diffGlobal.toFixed(2)}`,
           valueSecondary: "Límite: $500.01",
+          totalSalesCost: totalCostoVentas,
+          totalDeposits: totAbonos,
         });
       }
     }

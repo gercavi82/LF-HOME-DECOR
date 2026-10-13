@@ -14,6 +14,8 @@ import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent } from "@/src/components/ui";
 import { getAlerts } from "@/src/services/alerts/alerts";
 
+const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
+
 export default async function AlertsPage({
   searchParams,
 }: {
@@ -52,6 +54,40 @@ export default async function AlertsPage({
           {data.alerts.length ? (
             <div className="space-y-3">
               {data.alerts.map((alert) => {
+                if (alert.id === "pago-diferencia-global-500") {
+                  const pending = Math.max(
+                    0,
+                    Math.round((alert.totalSalesCost ?? 0) * 100) - Math.round((alert.totalDeposits ?? 0) * 100),
+                  ) / 100;
+
+                  return (
+                    <Link
+                      key={alert.id}
+                      href={alert.href}
+                      aria-label={`Saldo pendiente: ${currency.format(pending)}. Ver reporte de ventas`}
+                      className="block w-full rounded-2xl border border-l-4 border-lf-border bg-lf-surface px-5 py-4 text-emerald-700 shadow-[var(--lf-shadow-sm)] transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700 sm:max-w-sm"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-xs font-semibold uppercase tracking-wider">
+                          Saldo pendiente
+                        </h2>
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                          ≥ {currency.format(500.01)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-2xl font-bold tracking-tight tabular-nums">
+                        {currency.format(pending)}
+                      </p>
+                      <p className="mt-1 text-xs leading-5">
+                        Costo: {currency.format(alert.totalSalesCost ?? 0)} · Depósitos: {currency.format(alert.totalDeposits ?? 0)}
+                      </p>
+                      <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold">
+                        {alert.actionLabel} <ExternalLink size={11} aria-hidden="true" />
+                      </span>
+                    </Link>
+                  );
+                }
+
                 const isDanger = alert.severity === "danger";
                 const isPayment = alert.category === "PAGOS";
                 const isExpense = alert.category === "GASTOS";
