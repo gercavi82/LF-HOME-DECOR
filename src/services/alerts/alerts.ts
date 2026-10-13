@@ -94,35 +94,36 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     }
 
     // 2. Alertas de Pagos a Proveedores (Compras con saldo pendiente)
-    // 2.1 Alerta global: total consolidado menos depositos (saldo >= $500.01)
-    const globalPurchaseTotals = await query<{ total_compras: number; total_abonos: number }>(
+    // 2.1 Costo de ventas por tipo de producto (sin filtros) menos depositos.
+    const globalSalesCostTotals = await query<{ total_costo: number; total_abonos: number }>(
       `SELECT 
-         COALESCE(SUM(c.total), 0) AS total_compras,
+         COALESCE(SUM(d.costo_total), 0) AS total_costo,
          (
            SELECT COALESCE(SUM(pc.monto), 0) 
            FROM pagos_compras pc 
            WHERE pc.activo = 1
          ) AS total_abonos
-       FROM compras c
-       WHERE UPPER(COALESCE(c.estado, '')) NOT IN ('ANULADA', 'ANULADO')`
+       FROM detalle_ventas d
+       JOIN ventas v ON v.id_venta = d.id_venta
+       WHERE UPPER(COALESCE(v.estado, '')) NOT IN ('ANULADA', 'ANULADO')`
     ).catch(() => []);
 
-    if (globalPurchaseTotals && globalPurchaseTotals.length > 0) {
-      const totCompras = Number(globalPurchaseTotals[0].total_compras) || 0;
-      const totAbonos = Number(globalPurchaseTotals[0].total_abonos) || 0;
-      const diffGlobal = Math.max(0, Number((totCompras - totAbonos).toFixed(2)));
+    if (globalSalesCostTotals && globalSalesCostTotals.length > 0) {
+      const totalCostoVentas = Number(globalSalesCostTotals[0].total_costo) || 0;
+      const totAbonos = Number(globalSalesCostTotals[0].total_abonos) || 0;
+      const diffGlobal = Math.max(0, Number((totalCostoVentas - totAbonos).toFixed(2)));
 
       if (diffGlobal >= 500.01) {
         alerts.unshift({
           id: "pago-diferencia-global-500",
           category: "PAGOS",
-          title: "Alerta: Total consolidado − Total depósitos es mayor o igual a $500.01",
-          subtitle: "Total consolidado − Total depósitos",
-          detail: `Total consolidado: $${totCompras.toFixed(2)} − Total depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (no debe ser mayor o igual a $500.01).`,
+          title: "Alerta: Costo total de ventas − Total depósitos es mayor o igual a $500.01",
+          subtitle: "Costo total de ventas − Total depósitos",
+          detail: `Costo total de ventas: $${totalCostoVentas.toFixed(2)} − Total depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (no debe ser mayor o igual a $500.01).`,
           badgeLabel: "Saldo ≥ $500.01",
           severity: "danger",
-          href: "/compras",
-          actionLabel: "Ver compras y pagos",
+          href: "/reportes",
+          actionLabel: "Ver reporte de ventas",
           type: "OVERDUE_PAYMENT",
           valuePrimary: `$${diffGlobal.toFixed(2)}`,
           valueSecondary: "Límite: $500.01",

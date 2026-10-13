@@ -27,7 +27,7 @@ export default async function AlertsPage({
       <PageHeader
         eyebrow="Centro de alertas"
         title="Alerta de saldo pendiente"
-        description="Total consolidado menos total de depósitos a proveedores."
+        description="Costo total de ventas por tipo de producto menos total de depósitos a proveedores."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
