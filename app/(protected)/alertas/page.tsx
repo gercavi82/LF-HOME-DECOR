@@ -71,8 +71,8 @@ export default async function AlertsPage({
                         <h2 className="text-xs font-semibold uppercase tracking-wider">
                           Saldo pendiente
                         </h2>
-                        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                          ≥ {currency.format(500.01)}
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${alert.severity === "danger" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>
+                          {alert.severity === "danger" ? `≥ ${currency.format(500.01)}` : "Bajo el límite"}
                         </span>
                       </div>
                       <p className="mt-1 text-2xl font-bold tracking-tight tabular-nums">

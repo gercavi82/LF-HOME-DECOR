@@ -116,15 +116,15 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
       const saldoCentavos = Math.round(totalCostoVentas * 100) - Math.round(totAbonos * 100);
       const diffGlobal = Math.max(0, saldoCentavos) / 100;
 
-      if (saldoCentavos >= 50001) {
+      const exceedsLimit = saldoCentavos >= 50001;
         alerts.unshift({
           id: "pago-diferencia-global-500",
           category: "PAGOS",
-          title: "Alerta: Saldo pendiente es mayor o igual a $500.01",
+          title: exceedsLimit ? "Alerta: Saldo pendiente es mayor o igual a $500.01" : "Saldo pendiente",
           subtitle: "Costo total consolidado de Reportes − Total depósitos",
           detail: `Costo total de ventas: $${totalCostoVentas.toFixed(2)} − Total depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (no debe ser mayor o igual a $500.01).`,
-          badgeLabel: "Saldo ≥ $500.01",
-          severity: "danger",
+          badgeLabel: exceedsLimit ? "Saldo ≥ $500.01" : "Bajo el límite",
+          severity: exceedsLimit ? "danger" : "info",
           href: "/reportes",
           actionLabel: "Ver reporte de ventas",
           type: "OVERDUE_PAYMENT",
@@ -133,7 +133,6 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
           totalSalesCost: totalCostoVentas,
           totalDeposits: totAbonos,
         });
-      }
     }
 
     const purchaseRows = await query<{
@@ -245,7 +244,7 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
 export async function getAlertCount(): Promise<number> {
   try {
     const alerts = await queryAllAlerts();
-    return alerts.length;
+    return alerts.filter((alert) => alert.severity !== "info").length;
   } catch {
     return 0;
   }
@@ -271,10 +270,10 @@ export async function getAlerts(requestedType = "") {
       : allAlerts;
 
     const summary: AlertsSummary = {
-      total: allAlerts.length,
+      total: allAlerts.filter((a) => a.severity !== "info").length,
       out: allAlerts.filter((a) => a.type === "OUT_OF_STOCK").length,
       low: allAlerts.filter((a) => a.type === "LOW_STOCK").length,
-      overdue: allAlerts.filter((a) => a.type === "OVERDUE_PAYMENT").length,
+      overdue: allAlerts.filter((a) => a.type === "OVERDUE_PAYMENT" && a.severity !== "info").length,
       upcoming: allAlerts.filter((a) => a.type === "UPCOMING_PAYMENT").length,
       expenses: allAlerts.filter((a) => a.type === "EXPENSE_PENDING").length,
     };
