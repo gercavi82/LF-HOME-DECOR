@@ -67,6 +67,15 @@ export default async function AlertsPage({
               ? "No se pudo consultar el saldo. Vuelve a cargar la página."
               : `Costo: ${currency.format(balance!.totalSalesCost!)} · Depósitos: ${currency.format(balance!.totalDeposits!)}`}
           </p>
+          {pending !== null ? (
+            <p className={`mt-3 rounded-xl px-3 py-2 text-xs leading-5 ${exceedsLimit ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>
+              {exceedsLimit
+                ? "¡Es momento de ponernos al día! Un abono hoy nos ayuda a mantener el saldo bajo control."
+                : pending === 0
+                ? "¡Todo al día! Sigamos sumando ventas y cuidando cada detalle."
+                : "¡Vamos bien! El saldo está bajo control; sigamos al día con nuestros abonos."}
+            </p>
+          ) : null}
           <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold">
             Ver reporte de ventas <ExternalLink size={11} aria-hidden="true" />
           </span>
