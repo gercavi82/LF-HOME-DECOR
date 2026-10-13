@@ -111,14 +111,15 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     if (globalSalesCostTotals && globalSalesCostTotals.length > 0) {
       const totalCostoVentas = Number(globalSalesCostTotals[0].total_costo) || 0;
       const totAbonos = Number(globalSalesCostTotals[0].total_abonos) || 0;
-      const diffGlobal = Math.max(0, Number((totalCostoVentas - totAbonos).toFixed(2)));
+      const saldoCentavos = Math.round(totalCostoVentas * 100) - Math.round(totAbonos * 100);
+      const diffGlobal = Math.max(0, saldoCentavos) / 100;
 
-      if (diffGlobal >= 500.01) {
+      if (saldoCentavos >= 50001) {
         alerts.unshift({
           id: "pago-diferencia-global-500",
           category: "PAGOS",
-          title: "Alerta: Costo total de ventas − Total depósitos es mayor o igual a $500.01",
-          subtitle: "Costo total de ventas − Total depósitos",
+          title: "Alerta: Saldo pendiente es mayor o igual a $500.01",
+          subtitle: "Costo total consolidado de Reportes − Total depósitos",
           detail: `Costo total de ventas: $${totalCostoVentas.toFixed(2)} − Total depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (no debe ser mayor o igual a $500.01).`,
           badgeLabel: "Saldo ≥ $500.01",
           severity: "danger",
