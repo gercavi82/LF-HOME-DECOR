@@ -94,7 +94,7 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     }
 
     // 2. Alertas de Pagos a Proveedores (Compras con saldo pendiente)
-    // 2.1 Alerta Global: Costo Total de Compras vs Pagos Realizados (Diferencia > $500)
+    // 2.1 Alerta global: total consolidado menos depositos (saldo >= $500.01)
     const globalPurchaseTotals = await query<{ total_compras: number; total_abonos: number }>(
       `SELECT 
          COALESCE(SUM(c.total), 0) AS total_compras,
@@ -112,20 +112,20 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
       const totAbonos = Number(globalPurchaseTotals[0].total_abonos) || 0;
       const diffGlobal = Math.max(0, Number((totCompras - totAbonos).toFixed(2)));
 
-      if (diffGlobal >= 500) {
+      if (diffGlobal >= 500.01) {
         alerts.unshift({
           id: "pago-diferencia-global-500",
           category: "PAGOS",
-          title: "Alerta: Saldo pendiente a proveedores es mayor o igual a $500.00",
-          subtitle: "Costo Total Compras − Total Pagos Realizados",
-          detail: `Costo total compras: $${totCompras.toFixed(2)} − Pagos/Depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (alcanza o supera el límite de $500.00).`,
-          badgeLabel: "Saldo ≥ $500",
+          title: "Alerta: Total consolidado − Total depósitos es mayor o igual a $500.01",
+          subtitle: "Total consolidado − Total depósitos",
+          detail: `Total consolidado: $${totCompras.toFixed(2)} − Total depósitos: $${totAbonos.toFixed(2)} = Saldo pendiente: $${diffGlobal.toFixed(2)} (no debe ser mayor o igual a $500.01).`,
+          badgeLabel: "Saldo ≥ $500.01",
           severity: "danger",
           href: "/compras",
           actionLabel: "Ver compras y pagos",
           type: "OVERDUE_PAYMENT",
           valuePrimary: `$${diffGlobal.toFixed(2)}`,
-          valueSecondary: "Límite: $500",
+          valueSecondary: "Límite: $500.01",
         });
       }
     }
@@ -233,7 +233,7 @@ async function queryAllAlerts(): Promise<AlertItem[]> {
     console.error("queryAllAlerts error:", error);
   }
 
-  return alerts;
+  return alerts.filter((alert) => alert.id === "pago-diferencia-global-500");
 }
 
 export async function getAlertCount(): Promise<number> {

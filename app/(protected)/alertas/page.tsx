@@ -1,40 +1,33 @@
 import {
   AlertTriangle,
-  BellRing,
   Boxes,
-  Calendar,
   CheckCircle2,
-  Clock3,
   CreditCard,
   ExternalLink,
   PackageX,
-  Plus,
   Receipt,
-  RotateCcw,
-  Search,
-  ShoppingCart,
   Truck,
 } from "lucide-react";
 import Link from "next/link";
 
 import { ContentContainer, PageHeader } from "@/src/components/layout";
 import { Badge, Card, CardContent } from "@/src/components/ui";
-import { getAlerts, type AlertItem } from "@/src/services/alerts/alerts";
+import { getAlerts } from "@/src/services/alerts/alerts";
 
 export default async function AlertsPage({
   searchParams,
 }: {
   searchParams: Promise<{ tipo?: string }>;
 }) {
-  const { tipo = "" } = await searchParams;
-  const data = await getAlerts(tipo);
+  await searchParams;
+  const data = await getAlerts();
 
   return (
     <ContentContainer>
       <PageHeader
         eyebrow="Centro de alertas"
-        title="Alertas operativas y financieras"
-        description="Supervisión en tiempo real de inventario, pagos pendientes a proveedores y gastos fijos."
+        title="Alerta de saldo pendiente"
+        description="Total consolidado menos total de depósitos a proveedores."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -53,118 +46,7 @@ export default async function AlertsPage({
         }
       />
 
-      {/* Tarjetas de Filtro Rápido */}
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <Link
-          href="/alertas"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            !data.type
-              ? "border-lf-navy bg-lf-navy text-white"
-              : "bg-lf-surface hover:border-lf-navy/40"
-          }`}
-        >
-          <p className="text-xs font-medium opacity-80 uppercase tracking-wider">Todas</p>
-          <p className="mt-1 text-2xl font-bold">{data.summary.total}</p>
-          <p className="mt-0.5 text-xs opacity-70">Alertas activas</p>
-        </Link>
-
-        <Link
-          href="/alertas?tipo=vencidos"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            data.type === "vencidos"
-              ? "border-red-600 bg-red-600 text-white"
-              : "border-l-4 border-l-red-500 bg-lf-surface hover:border-red-400"
-          }`}
-        >
-          <p className={`text-xs font-semibold uppercase tracking-wider ${data.type === "vencidos" ? "text-white" : "text-red-700"}`}>
-            Pagos Vencidos
-          </p>
-          <p className={`mt-1 text-2xl font-bold ${data.type === "vencidos" ? "text-white" : "text-red-700"}`}>
-            {data.summary.overdue}
-          </p>
-          <p className={`mt-0.5 text-xs ${data.type === "vencidos" ? "opacity-80" : "text-red-600"}`}>
-            +30 días de antigüedad
-          </p>
-        </Link>
-
-        <Link
-          href="/alertas?tipo=proximos"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            data.type === "proximos"
-              ? "border-amber-500 bg-amber-500 text-white"
-              : "border-l-4 border-l-amber-500 bg-lf-surface hover:border-amber-400"
-          }`}
-        >
-          <p className={`text-xs font-semibold uppercase tracking-wider ${data.type === "proximos" ? "text-white" : "text-amber-800"}`}>
-            Pagos Próximos
-          </p>
-          <p className={`mt-1 text-2xl font-bold ${data.type === "proximos" ? "text-white" : "text-amber-800"}`}>
-            {data.summary.upcoming}
-          </p>
-          <p className={`mt-0.5 text-xs ${data.type === "proximos" ? "opacity-80" : "text-amber-700"}`}>
-            15 a 29 días pendientes
-          </p>
-        </Link>
-
-        <Link
-          href="/alertas?tipo=minimo"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            data.type === "minimo"
-              ? "border-amber-600 bg-amber-600 text-white"
-              : "border-l-4 border-l-amber-500 bg-lf-surface hover:border-amber-400"
-          }`}
-        >
-          <p className={`text-xs font-semibold uppercase tracking-wider ${data.type === "minimo" ? "text-white" : "text-slate-600"}`}>
-            Stock Mínimo
-          </p>
-          <p className={`mt-1 text-2xl font-bold ${data.type === "minimo" ? "text-white" : "text-amber-600"}`}>
-            {data.summary.low}
-          </p>
-          <p className={`mt-0.5 text-xs ${data.type === "minimo" ? "opacity-80" : "text-slate-500"}`}>
-            Por agotarse
-          </p>
-        </Link>
-
-        <Link
-          href="/alertas?tipo=agotado"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            data.type === "agotado"
-              ? "border-red-600 bg-red-600 text-white"
-              : "border-l-4 border-l-red-500 bg-lf-surface hover:border-red-400"
-          }`}
-        >
-          <p className={`text-xs font-semibold uppercase tracking-wider ${data.type === "agotado" ? "text-white" : "text-red-700"}`}>
-            Agotados
-          </p>
-          <p className={`mt-1 text-2xl font-bold ${data.type === "agotado" ? "text-white" : "text-red-700"}`}>
-            {data.summary.out}
-          </p>
-          <p className={`mt-0.5 text-xs ${data.type === "agotado" ? "opacity-80" : "text-red-600"}`}>
-            0 unidades
-          </p>
-        </Link>
-
-        <Link
-          href="/alertas?tipo=gastos"
-          className={`rounded-2xl border p-4 transition shadow-2xs ${
-            data.type === "gastos"
-              ? "border-blue-600 bg-blue-600 text-white"
-              : "border-l-4 border-l-blue-500 bg-lf-surface hover:border-blue-400"
-          }`}
-        >
-          <p className={`text-xs font-semibold uppercase tracking-wider ${data.type === "gastos" ? "text-white" : "text-blue-800"}`}>
-            Gastos Fijos
-          </p>
-          <p className={`mt-1 text-2xl font-bold ${data.type === "gastos" ? "text-white" : "text-blue-800"}`}>
-            {data.summary.expenses}
-          </p>
-          <p className={`mt-0.5 text-xs ${data.type === "gastos" ? "opacity-80" : "text-blue-700"}`}>
-            Control mensual
-          </p>
-        </Link>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid gap-6">
         {/* Listado de Alertas Activas */}
         <section>
           {data.alerts.length ? (
@@ -259,7 +141,7 @@ export default async function AlertsPage({
                   </div>
                   <p className="text-lg font-bold text-lf-navy">Sin alertas activas</p>
                   <p className="mt-1 text-sm text-lf-muted max-w-md">
-                    Todos los niveles de inventario, pagos a proveedores y gastos se encuentran al día dentro de los parámetros esperados.
+                    El saldo pendiente a proveedores es menor a $500.01.
                   </p>
                 </div>
               </CardContent>
@@ -267,53 +149,7 @@ export default async function AlertsPage({
           )}
         </section>
 
-        {/* Panel Lateral: Criterios y Políticas de Alertas */}
-        <aside className="h-fit rounded-2xl border bg-lf-surface p-5 shadow-sm space-y-4">
-          <h2 className="font-bold text-lf-navy flex items-center gap-2">
-            <Clock3 size={17} className="text-lf-terracotta" /> Políticas de Alertas
-          </h2>
-          <p className="text-xs text-lf-muted">
-            Reglas configuradas para el monitoreo preventivo de tu negocio:
-          </p>
 
-          <div className="space-y-3 text-xs">
-            <div className="rounded-xl border border-red-200 bg-red-50/50 p-3">
-              <p className="font-bold text-red-800 flex items-center gap-1">
-                <CreditCard size={13} /> Pagos Vencidos a Proveedores
-              </p>
-              <p className="mt-1 text-red-700">
-                Se activa cuando una factura de compra tiene saldo pendiente y lleva más de <strong>30 días</strong> desde su emisión.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-              <p className="font-bold text-amber-800 flex items-center gap-1">
-                <Clock3 size={13} /> Pagos Próximos a Proveedores
-              </p>
-              <p className="mt-1 text-amber-700">
-                Avisa cuando una compra tiene entre <strong>15 y 29 días</strong> con saldo pendiente por liquidar.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-              <p className="font-bold text-amber-800 flex items-center gap-1">
-                <AlertTriangle size={13} /> Stock Mínimo
-              </p>
-              <p className="mt-1 text-amber-700">
-                Alerta cuando las existencias en bodega son menores o iguales al <strong>stock mínimo</strong> configurado en el producto (por defecto 5 uds).
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
-              <p className="font-bold text-blue-800 flex items-center gap-1">
-                <Receipt size={13} /> Gastos Fijos Mensuales
-              </p>
-              <p className="mt-1 text-blue-700">
-                Recuerda el registro de arriendos y servicios básicos si no se han asentado a partir del día 5 del mes.
-              </p>
-            </div>
-          </div>
-        </aside>
       </div>
     </ContentContainer>
   );
