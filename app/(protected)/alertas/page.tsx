@@ -139,9 +139,9 @@ export default async function AlertsPage({
                   <div className="grid size-14 place-items-center rounded-2xl bg-emerald-100 text-emerald-700 mx-auto mb-3">
                     <CheckCircle2 size={32} />
                   </div>
-                  <p className="text-lg font-bold text-lf-navy">Sin alertas activas</p>
+                  <p className="text-lg font-bold text-lf-navy">¡Todo bajo control!</p>
                   <p className="mt-1 text-sm text-lf-muted max-w-md">
-                    El saldo pendiente a proveedores es menor a $500.01.
+                    Tu saldo pendiente está por debajo de $500,01. Puedes seguir trabajando con tranquilidad; aquí te avisaremos cuando alcance o supere ese valor.
                   </p>
                 </div>
               </CardContent>
