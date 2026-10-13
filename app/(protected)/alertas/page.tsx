@@ -56,7 +56,7 @@ export default async function AlertsPage({
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider">Saldo pendiente</h2>
             <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${exceedsLimit ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>
-              {pending === null ? "Sin datos" : exceedsLimit ? `? ${currency.format(500.01)}` : "Bajo el l?mite"}
+              {pending === null ? "Sin datos" : exceedsLimit ? `≥ ${currency.format(500.01)}` : "Bajo el límite"}
             </span>
           </div>
           <p className="mt-1 text-2xl font-bold tracking-tight tabular-nums">
@@ -64,8 +64,8 @@ export default async function AlertsPage({
           </p>
           <p className="mt-1 text-xs leading-5">
             {pending === null
-              ? "No se pudo consultar el saldo. Vuelve a cargar la p?gina."
-              : `Costo: ${currency.format(balance!.totalSalesCost!)} ? Dep?sitos: ${currency.format(balance!.totalDeposits!)}`}
+              ? "No se pudo consultar el saldo. Vuelve a cargar la página."
+              : `Costo: ${currency.format(balance!.totalSalesCost!)} · Depósitos: ${currency.format(balance!.totalDeposits!)}`}
           </p>
           <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold">
             Ver reporte de ventas <ExternalLink size={11} aria-hidden="true" />
