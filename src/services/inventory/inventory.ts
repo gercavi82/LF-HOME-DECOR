@@ -32,6 +32,7 @@ export type InventoryItem = {
   stock_kardex: number;
   inconsistencia: boolean;
   diferencia: number;
+  costo_stock: number | null;
 };
 
 type InventoryItemRaw = {
@@ -57,6 +58,7 @@ type InventoryItemRaw = {
   cant_ajustes_pos: number | null;
   cant_ajustes_neg: number | null;
   saldo_kardex: number | null;
+  costo_compra: number | null;
 };
 
 function sanitizeSearch(value: string) {
@@ -82,6 +84,15 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
       t.nombre AS tamano,
       col.nombre AS color,
       sp.cantidad AS stock_actual,
+      (
+        SELECT ROUND(dc.total / dc.cantidad, 2)
+        FROM detalle_compras dc
+        JOIN compras compra ON compra.id_compra = dc.id_compra
+        WHERE dc.id_variante = vp.id_variante AND dc.cantidad > 0
+          AND UPPER(COALESCE(compra.estado, '')) NOT IN ('ANULADA', 'ANULADO')
+        ORDER BY compra.fecha DESC, dc.id_detalle_compra DESC
+        LIMIT 1
+      ) AS costo_compra,
       vp.stock_minimo,
       CASE
         WHEN sp.cantidad <= 0 THEN 'AGOTADO'
@@ -164,7 +175,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
   }
 
   const limitValue = Math.min(Math.max(1, limit), 20000);
-  sql += ` ORDER BY p.descripcion ASC, b.nombre ASC LIMIT ${limitValue}`;
+  sql += ` ORDER BY p.descripcion ASC, b.nombre ASC`;
 
   try {
     const itemsResult = await query<InventoryItemRaw>(sql, params);
@@ -213,6 +224,9 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
         stock_kardex: stockFinal,
         inconsistencia: false,
         diferencia: 0,
+        costo_stock: item.costo_compra !== null && item.costo_compra !== undefined
+          ? Math.round(stockFinal * Math.round(Number(item.costo_compra) * 100)) / 100
+          : null,
       };
     });
 
@@ -230,8 +244,13 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     }
 
     return {
-      items,
+      items: items.slice(0, limitValue),
       count: items.length,
+      valuation: {
+        total: Math.round(items.reduce((total, item) => total + (item.costo_stock ?? 0), 0) * 100) / 100,
+        missing: items.filter((item) => item.stock_actual > 0 && item.costo_stock === null).length,
+        filtered: Boolean(normalized || parsedStatus.success),
+      },
       summary: {
         available: availableCount,
         low: lowCount,
@@ -246,6 +265,7 @@ export async function getInventory(search = "", requestedStatus = "", limit = 20
     return {
       items: [],
       count: 0,
+      valuation: { total: 0, missing: 0, filtered: Boolean(normalized || parsedStatus.success) },
       summary: { available: 0, low: 0, out: 0, total: 0, inconsistencies: 0 },
       status: null,
     };

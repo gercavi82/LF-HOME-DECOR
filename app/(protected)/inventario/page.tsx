@@ -13,6 +13,8 @@ const statusPresentation: Record<InventoryStatus, { label: string; variant: "suc
   AGOTADO: { label: "Agotado", variant: "danger" },
 };
 
+const currency = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
+
 function SummaryCard({ label, value, icon: Icon, tone }: { label: string; value: number; icon: typeof Boxes; tone: string }) {
   return <Card><CardContent className="pt-5 sm:pt-5"><div className="flex items-center justify-between gap-4"><div><p className="text-sm text-lf-muted">{label}</p><p className="mt-1 text-2xl font-bold">{value}</p></div><span className={`grid size-11 place-items-center rounded-xl ${tone}`}><Icon size={21} /></span></div></CardContent></Card>;
 }
@@ -41,6 +43,14 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       <SummaryCard label="Bajo stock" value={inventory.summary.low} icon={AlertTriangle} tone="bg-[var(--lf-warning-soft)] text-lf-warning" />
       <SummaryCard label="Agotados" value={inventory.summary.out} icon={PackageX} tone="bg-[var(--lf-danger-soft)] text-lf-danger" />
     </div>
+    <Card className="mb-5 border-l-4 border-l-emerald-600">
+      <CardContent className="pt-5 sm:pt-5">
+        <p className="text-sm text-lf-muted">Valor total del inventario {inventory.valuation.filtered ? "(filtrado)" : "(global)"}</p>
+        <p className="mt-1 text-2xl font-bold text-emerald-700">{currency.format(inventory.valuation.total)}</p>
+        <p className="mt-1 text-xs text-lf-muted">Stock actual × costo unitario de la última compra no anulada.</p>
+        {inventory.valuation.missing > 0 ? <p className="mt-2 text-xs text-amber-800">Total parcial: {inventory.valuation.missing} registro(s) con existencias pendientes de valoración.</p> : null}
+      </CardContent>
+    </Card>
     <form className="mb-5 grid gap-3 rounded-2xl border bg-lf-surface p-3 sm:grid-cols-[minmax(0,1fr)_13rem_auto_auto]">
       <label className="relative"><span className="sr-only">Buscar inventario</span><Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lf-muted" /><input name="q" defaultValue={q} placeholder="Producto, GS1 o bodega..." className="h-11 w-full rounded-xl border bg-white pl-10 pr-4 outline-none focus:border-lf-terracotta" /></label>
       <select name="estado" defaultValue={inventory.status ?? ""} className="h-11 rounded-xl border bg-white px-3 outline-none focus:border-lf-terracotta"><option value="">Todos los estados</option><option value="DISPONIBLE">Disponible</option><option value="BAJO STOCK">Bajo stock</option><option value="AGOTADO">Agotado</option></select>
@@ -55,11 +65,10 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
               <tr>
                 <TableHead>Producto / GS1</TableHead>
                 <TableHead>Bodega</TableHead>
-                <TableHead className="text-right">Inicial</TableHead>
                 <TableHead className="text-right">Compras</TableHead>
                 <TableHead className="text-right">Ventas</TableHead>
-                <TableHead className="text-right">Stock Kardex</TableHead>
                 <TableHead className="text-right">Stock Actual</TableHead>
+                <TableHead className="text-right">Costo Stock</TableHead>
                 <TableHead>Estado</TableHead>
               </tr>
             </thead>
@@ -78,10 +87,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       </p>
                     </TableCell>
                     <TableCell>{item.bodega}</TableCell>
-                    <TableCell className="text-right font-mono text-xs text-lf-muted">{item.inicial}</TableCell>
                     <TableCell className="text-right font-mono text-xs text-emerald-700">+{item.compras}</TableCell>
                     <TableCell className="text-right font-mono text-xs text-red-700">−{item.ventas}</TableCell>
-                    <TableCell className="text-right font-mono text-xs font-semibold">{item.stock_kardex}</TableCell>
                     <TableCell className="text-right">
                       <span
                         className={`text-lg font-bold ${
@@ -94,6 +101,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       >
                         {item.stock_actual}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-emerald-700 tabular-nums">
+                      {item.costo_stock === null ? <span className="text-xs font-normal text-lf-muted">Sin costo registrado</span> : currency.format(item.costo_stock)}
                     </TableCell>
                     <TableCell>
                       <Badge variant={presentation.variant}>{presentation.label}</Badge>

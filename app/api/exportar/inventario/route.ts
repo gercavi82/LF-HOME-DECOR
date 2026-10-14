@@ -23,6 +23,9 @@ export async function GET(request: NextRequest) {
     const fileNameBase = `reporte_inventario_${todayStr}`;
 
     const totalUnidades = items.reduce((acc, item) => acc + item.stock_actual, 0);
+    const costLabel = (item: typeof items[number]) => item.costo_stock === null
+      ? "Sin costo registrado"
+      : item.costo_stock.toFixed(2);
 
     // 1. FORMATO CSV
     if (formato === "csv") {
@@ -35,7 +38,10 @@ export async function GET(request: NextRequest) {
         "Marca",
         "Tamaño",
         "Color",
+        "Compras",
+        "Ventas",
         "Stock Actual",
+        "Costo Stock (USD)",
         "Stock Mínimo",
         "Estado Stock",
       ];
@@ -57,7 +63,10 @@ export async function GET(request: NextRequest) {
         escapeCsv(item.marca ?? ""),
         escapeCsv(item.tamano ?? ""),
         escapeCsv(item.color ?? ""),
+        item.compras,
+        item.ventas,
         item.stock_actual,
+        escapeCsv(costLabel(item)),
         item.stock_minimo,
         escapeCsv(item.estado_stock),
       ]);
@@ -84,7 +93,10 @@ export async function GET(request: NextRequest) {
         "Marca": item.marca ?? "",
         "Tamaño": item.tamano ?? "",
         "Color": item.color ?? "",
+        "Compras": item.compras,
+        "Ventas": item.ventas,
         "Stock Actual": item.stock_actual,
+        "Costo Stock (USD)": item.costo_stock ?? costLabel(item),
         "Stock Mínimo": item.stock_minimo,
         "Estado Stock": item.estado_stock,
       }));
@@ -95,12 +107,19 @@ export async function GET(request: NextRequest) {
         { "Métrica": "Artículos Bajo Stock", "Valor": summary.low },
         { "Métrica": "Artículos Agotados", "Valor": summary.out },
         { "Métrica": "Total Unidades Físicas", "Valor": totalUnidades },
+        { "Métrica": inventory.valuation.filtered ? "Valor del inventario filtrado (USD)" : "Valor total del inventario (USD)", "Valor": inventory.valuation.total },
+        { "Métrica": "Existencias pendientes de valoración (total parcial si mayor a cero)", "Valor": inventory.valuation.missing },
         { "Métrica": "Fecha de Corte", "Valor": todayStr },
       ];
 
       const workbook = XLSX.utils.book_new();
 
       const itemsSheet = XLSX.utils.json_to_sheet(dataRows);
+      const costColumn = Object.keys(dataRows[0] ?? {}).indexOf("Costo Stock (USD)");
+      if (costColumn >= 0) for (let row = 1; row <= dataRows.length; row++) {
+        const cell = itemsSheet[XLSX.utils.encode_cell({ r: row, c: costColumn })];
+        if (cell?.t === "n") cell.z = '"$"#,##0.00';
+      }
       XLSX.utils.book_append_sheet(workbook, itemsSheet, "Existencias Inventario");
 
       const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
@@ -165,7 +184,7 @@ export async function GET(request: NextRequest) {
       doc.text(`Emisión: ${fechaEmision}`, pageWidth - 35, 34, { align: "right" });
 
       // Filtros aplicados
-      let filtrosTexto = [];
+      const filtrosTexto = [];
       if (q) filtrosTexto.push(`Búsqueda: "${q}"`);
       if (estado) filtrosTexto.push(`Estado: ${estado}`);
 
@@ -185,6 +204,8 @@ export async function GET(request: NextRequest) {
         { label: "BAJO STOCK", val: `${summary.low}` },
         { label: "AGOTADOS", val: `${summary.out}` },
         { label: "UNIDADES FÍSICAS", val: `${totalUnidades}` },
+        { label: inventory.valuation.filtered ? "VALOR FILTRADO (USD)" : "VALOR TOTAL (USD)", val: `$${inventory.valuation.total.toFixed(2)}` },
+        { label: "SIN VALORAR (TOTAL PARCIAL)", val: `${inventory.valuation.missing}` },
       ];
 
       const kpiWidth = (pageWidth - 70 - (kpis.length - 1) * 8) / kpis.length;
@@ -215,7 +236,10 @@ export async function GET(request: NextRequest) {
         "Código GS1",
         "Bodega",
         "Detalles / Variante",
+        "Compras",
+        "Ventas",
         "Stock Actual",
+        "Costo Stock (USD)",
         "Mínimo",
         "Estado",
       ];
@@ -227,7 +251,10 @@ export async function GET(request: NextRequest) {
           item.codigo_gs1,
           item.bodega,
           detalles.length > 35 ? `${detalles.slice(0, 32)}...` : detalles,
+          item.compras,
+          item.ventas,
           item.stock_actual,
+          item.costo_stock === null ? costLabel(item) : `$${costLabel(item)}`,
           item.stock_minimo,
           item.estado_stock,
         ];
@@ -251,12 +278,15 @@ export async function GET(request: NextRequest) {
         },
         columnStyles: {
           // 0: Producto (ancho automático adaptable)
-          1: { cellWidth: 90, fontStyle: "bold" },
-          2: { cellWidth: 95 },
-          3: { cellWidth: 160 },
-          4: { cellWidth: 65, halign: "center", fontStyle: "bold" },
-          5: { cellWidth: 55, halign: "center" },
-          6: { cellWidth: 70, halign: "center" },
+          1: { cellWidth: 80, fontStyle: "bold" },
+          2: { cellWidth: 75 },
+          3: { cellWidth: 100 },
+          4: { cellWidth: 45, halign: "right" },
+          5: { cellWidth: 45, halign: "right" },
+          6: { cellWidth: 55, halign: "right", fontStyle: "bold" },
+          7: { cellWidth: 90, halign: "right", fontStyle: "bold" },
+          8: { cellWidth: 40, halign: "right" },
+          9: { cellWidth: 60, halign: "center" },
         },
         alternateRowStyles: {
           fillColor: [248, 250, 252],
